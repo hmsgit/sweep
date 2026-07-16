@@ -131,6 +131,27 @@ fn select_limits_rules() {
 }
 
 #[test]
+fn line_length_defaults_to_warn_only() {
+    // No config: limit 79, level warn, no rewrap — the long docstring
+    // line is reported but not fixable, and --fix leaves it alone.
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::write(temp.path().join("sweep.toml"), "").unwrap();
+    let long_line = "x".repeat(90);
+    let source = format!("def f():\n    \"\"\"Summary.\n\n    {long_line}\n    \"\"\"\n");
+    std::fs::write(temp.path().join("input.py"), &source).unwrap();
+
+    let output = run_sweep(temp.path(), &["check", ".", "--fix"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("[docstring-line-length]") && stdout.contains("(79 allowed)"),
+        "stdout:\n{stdout}"
+    );
+    assert!(!stdout.contains("[fixable]"), "stdout:\n{stdout}");
+    let after = std::fs::read_to_string(temp.path().join("input.py")).unwrap();
+    assert_eq!(after, source, "default must not rewrite");
+}
+
+#[test]
 fn explicit_file_paths_are_checked() {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hoist");
     let temp = tempfile::tempdir().unwrap();

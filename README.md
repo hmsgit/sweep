@@ -19,6 +19,7 @@ non-conflicting fixes and re-checks until nothing is left to do.
 | `local-imports` | flags `import`/`from … import` inside functions | hoists into the module import block (stdlib / third-party / first-party section, alphabetical) |
 | `docstring-style` | flags docstrings whose sections follow a different convention than configured (reST / Google / NumPy), plus Markdown-style `` `spans` `` in reST docstrings | converts the docstring to the configured convention; doubles backticks |
 | `string-annotations` | flags quoted type annotations like `x: "Foo"` | unquotes and inserts `from __future__ import annotations` |
+| `docstring-line-length` | flags docstring lines exceeding the line length (default 79, or ruff's `line-length`) | off by default; `fix = "rewrap"` re-flows docstring prose to fit |
 
 Deliberate exceptions are suppressed with a comment on the same line (or
 the line above):
@@ -35,7 +36,9 @@ def load(x: "Config") -> None:  # sweep: ignore[string-annotations] runtime intr
 
 Never auto-fixed, only warned about: conditional imports (`try`/`except
 ImportError`, `if TYPE_CHECKING` blocks), relative imports inside
-functions, docstrings that can't be converted losslessly.
+functions, docstrings that can't be converted losslessly, and non-prose
+docstring content (bullet lists, doctests, directives) that a rewrap
+would mangle.
 
 ## Usage
 
@@ -58,6 +61,7 @@ overrides):
 ```toml
 [tool.sweep]
 exclude = ["migrations/"]
+line-length = 79              # falls back to [tool.ruff].line-length, then 79
 
 [tool.sweep.python]
 docstring-style = "rest"      # rest (default) | google | numpy
@@ -72,7 +76,16 @@ level = "warn"
 
 [tool.sweep.rules.string-annotations]
 level = "warn"
+
+[tool.sweep.rules.docstring-line-length]
+level = "warn"                # warn (default) | error | off — report only
+fix = "off"                   # "off" (default) | "rewrap" — whether --fix re-flows prose
 ```
+
+With `fix = "rewrap"`, docstring conversions (`docstring-style`) also
+wrap their output to the line length; author line breaks in prose are
+replaced by computed ones. Bullets, numbered lists, doctests and reST
+directives always keep their original line structure.
 
 First-party packages for import-section placement are also picked up
 automatically from `[project].name`, `[tool.poetry].name`,

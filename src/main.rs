@@ -82,8 +82,21 @@ fn check_command(
     ignore: &[String],
     config_path: Option<&Path>,
 ) -> Result<ExitCode> {
+    // Discover config from the checked paths, not the process cwd, so
+    // `sweep check some/other/project` picks up that project's config.
     let cwd = std::env::current_dir()?;
-    let config = Config::load(config_path, &cwd)?;
+    let start_dir = match paths.first() {
+        Some(p) => {
+            let abs = p.canonicalize().unwrap_or_else(|_| cwd.join(p));
+            if abs.is_dir() {
+                abs
+            } else {
+                abs.parent().map(Path::to_path_buf).unwrap_or(cwd)
+            }
+        }
+        None => cwd,
+    };
+    let config = Config::load(config_path, &start_dir)?;
 
     let all_rules = langs::python::rules::all_rules();
     let known: BTreeSet<&str> = all_rules.iter().map(|r| r.name()).collect();

@@ -78,7 +78,9 @@ pub fn check_file(
 
         let fixes: Vec<_> = diagnostics.iter().filter_map(|d| d.fix.as_ref()).collect();
         let (next, applied) = apply_fixes(&current, &fixes);
-        if applied == 0 {
+        // A no-op round (nothing applied, or edits that reproduce the same
+        // source) means the remaining diagnostics are as fixed as they get.
+        if applied == 0 || next == current {
             return Ok(FileReport {
                 path: path.to_path_buf(),
                 diagnostics: diagnostics.iter().map(|d| render(d, &line_index)).collect(),

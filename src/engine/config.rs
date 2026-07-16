@@ -50,13 +50,47 @@ impl Default for LocalImportsConfig {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
+pub struct DocstringLineLengthConfig {
+    pub level: Level,
+    /// Whether --fix re-wraps docstring prose to fit the line length.
+    pub rewrap: bool,
+}
+
+impl Default for DocstringLineLengthConfig {
+    fn default() -> Self {
+        Self {
+            level: Level::Warn,
+            rewrap: false,
+        }
+    }
+}
+
+pub const DEFAULT_LINE_LENGTH: usize = 79;
+
+#[derive(Debug, Clone)]
 pub struct Config {
     pub exclude: Vec<String>,
+    pub line_length: usize,
     pub docstring_style: DocStyle,
     pub docstring_level: Level,
     pub string_annotations_level: Level,
     pub local_imports: LocalImportsConfig,
+    pub docstring_line_length: DocstringLineLengthConfig,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            exclude: Vec::new(),
+            line_length: DEFAULT_LINE_LENGTH,
+            docstring_style: DocStyle::default(),
+            docstring_level: Level::default(),
+            string_annotations_level: Level::default(),
+            local_imports: LocalImportsConfig::default(),
+            docstring_line_length: DocstringLineLengthConfig::default(),
+        }
+    }
 }
 
 // ---- raw TOML shapes -------------------------------------------------------
@@ -65,6 +99,7 @@ pub struct Config {
 #[serde(default, rename_all = "kebab-case")]
 struct RawSweep {
     exclude: Vec<String>,
+    line_length: Option<usize>,
     python: RawPython,
     rules: RawRules,
 }
@@ -81,6 +116,14 @@ struct RawRules {
     local_imports: RawLocalImports,
     docstring_style: RawLevelOnly,
     string_annotations: RawLevelOnly,
+    docstring_line_length: RawDocstringLineLength,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default, rename_all = "kebab-case")]
+struct RawDocstringLineLength {
+    level: Option<Level>,
+    fix: Option<toml::Value>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -147,8 +190,20 @@ impl Config {
             None => RawSweep::default(),
         };
 
+        // Line length: sweep's own setting wins, then ruff's, then 79.
+        let ruff_line_length = doc
+            .get("tool")
+            .and_then(|t| t.get("ruff"))
+            .and_then(|r| r.get("line-length"))
+            .and_then(|v| v.as_integer())
+            .and_then(|n| usize::try_from(n).ok());
+
         let mut config = Config {
             exclude: raw.exclude,
+            line_length: raw
+                .line_length
+                .or(ruff_line_length)
+                .unwrap_or(DEFAULT_LINE_LENGTH),
             docstring_style: raw.python.docstring_style.unwrap_or_default(),
             docstring_level: raw.rules.docstring_style.level.unwrap_or_default(),
             string_annotations_level: raw.rules.string_annotations.level.unwrap_or_default(),
@@ -161,6 +216,15 @@ impl Config {
                     Some(_) => true,
                 },
                 known_first_party: raw.rules.local_imports.known_first_party,
+            },
+            docstring_line_length: DocstringLineLengthConfig {
+                level: raw.rules.docstring_line_length.level.unwrap_or_default(),
+                rewrap: match &raw.rules.docstring_line_length.fix {
+                    None => false,
+                    Some(toml::Value::Boolean(b)) => *b,
+                    Some(toml::Value::String(s)) => s == "rewrap",
+                    Some(_) => false,
+                },
             },
         };
 
@@ -233,6 +297,22 @@ mod tests {
         let c = Config::default();
         assert_eq!(c.docstring_style, DocStyle::Rest);
         assert!(c.local_imports.hoist);
+    }
+
+    #[test]
+    fn line_length_falls_back_to_ruff_then_default() {
+        let with_ruff = "[tool.ruff]\nline-length = 100\n";
+        let c = Config::from_toml(with_ruff, Path::new("pyproject.toml")).unwrap();
+        assert_eq!(c.line_length, 100);
+
+        let own_wins = "[tool.ruff]\nline-length = 100\n\n[tool.sweep]\nline-length = 120\n";
+        let c = Config::from_toml(own_wins, Path::new("pyproject.toml")).unwrap();
+        assert_eq!(c.line_length, 120);
+
+        let c = Config::from_toml("", Path::new("pyproject.toml")).unwrap();
+        assert_eq!(c.line_length, DEFAULT_LINE_LENGTH);
+        assert!(!c.docstring_line_length.rewrap);
+        assert_eq!(c.docstring_line_length.level, Level::Warn);
     }
 
     #[test]

@@ -7,7 +7,12 @@ mod render;
 
 pub use markup::markup_issues;
 
+use tree_sitter::Node;
+
 use crate::engine::config::DocStyle;
+use crate::engine::context::walk_tree;
+use crate::engine::fix::{Edit, Fix};
+use crate::langs::python::{docstring_of_statement, line_start, module_docstring};
 
 /// Style-neutral representation of a structured docstring. Lines are
 /// stored dedented; renderers re-indent for the target style and the
@@ -135,13 +140,142 @@ pub fn detect(content: &str) -> Option<DocStyle> {
 }
 
 /// Parse + re-render in one step. `None` when the docstring can't be
-/// converted losslessly (the rule then warns without a fix).
-pub fn convert(content: &str, from: DocStyle, to: DocStyle) -> Option<String> {
+/// converted losslessly (the rule then warns without a fix). With
+/// `width: Some(n)` prose is re-flowed to fit `n` columns.
+pub fn convert(
+    content: &str,
+    from: DocStyle,
+    to: DocStyle,
+    width: Option<usize>,
+    first_line_penalty: usize,
+) -> Option<String> {
     let ir = parse::parse(content, from)?;
     if !ir.has_sections() {
         return None;
     }
-    Some(render::render(&ir, to))
+    Some(render::render(&ir, to, width, first_line_penalty))
+}
+
+/// Re-render a docstring in its own style with prose re-flowed to fit
+/// `width` columns. Unlike [`convert`], plain-prose docstrings without
+/// sections are fine — there is still text to wrap.
+pub fn rewrap(
+    content: &str,
+    style: DocStyle,
+    width: usize,
+    first_line_penalty: usize,
+) -> Option<String> {
+    let ir = parse::parse(content, style)?;
+    Some(render::render(&ir, style, Some(width), first_line_penalty))
+}
+
+/// Every docstring in a parsed file: module, class and function bodies.
+pub fn docstrings(root: Node) -> Vec<Node> {
+    let mut found = Vec::new();
+    if let Some(doc) = module_docstring(root) {
+        found.push(doc);
+    }
+    walk_tree(root, &mut |node| {
+        if !matches!(node.kind(), "function_definition" | "class_definition") {
+            return;
+        }
+        let Some(body) = node.child_by_field_name("body") else {
+            return;
+        };
+        let Some(first) = body.named_child(0) else {
+            return;
+        };
+        if let Some(doc) = docstring_of_statement(first) {
+            found.push(doc);
+        }
+    });
+    found
+}
+
+/// Byte range of the text between the quotes. Bails on f-strings,
+/// byte prefixes and concatenations, where rewriting content could
+/// change semantics.
+pub fn content_range(string: Node, source: &str) -> Option<(usize, usize)> {
+    let mut start = None;
+    let mut end = None;
+    let mut cursor = string.walk();
+    for child in string.children(&mut cursor) {
+        match child.kind() {
+            "string_start" => start = Some(child.end_byte()),
+            "string_end" => end = Some(child.start_byte()),
+            "string_content" => {}
+            _ => return None,
+        }
+    }
+    let (start, end) = (start?, end?);
+    let opener = &source[string.start_byte()..start];
+    if !opener
+        .trim_end_matches(['"', '\''])
+        .chars()
+        .all(|c| matches!(c, 'r' | 'R' | 'u' | 'U'))
+    {
+        return None;
+    }
+    Some((start, end))
+}
+
+/// The whitespace before the docstring's opening quotes — its base
+/// indentation. `None` if anything else shares the line.
+pub fn base_indent<'a>(string: Node, source: &'a str) -> Option<&'a str> {
+    let stmt_line_start = line_start(source, string.start_byte());
+    let indent = &source[stmt_line_start..string.start_byte()];
+    indent
+        .chars()
+        .all(|c| c == ' ' || c == '\t')
+        .then_some(indent)
+}
+
+/// Build the fix that replaces a docstring's content with `rendered`
+/// (dedented lines), re-applying the base indentation and keeping the
+/// closing-quote shape. `None` when splicing is unsafe or a no-op.
+pub fn splice_fix(
+    string: Node,
+    source: &str,
+    content_start: usize,
+    content: &str,
+    rendered: &str,
+) -> Option<Fix> {
+    let indent = base_indent(string, source)?;
+
+    let mut new_content = String::new();
+    for (i, line) in rendered.lines().enumerate() {
+        if i > 0 {
+            new_content.push('\n');
+            if !line.is_empty() {
+                new_content.push_str(indent);
+            }
+        }
+        new_content.push_str(line);
+    }
+
+    // Multi-line content needs triple quotes and a closing-quote line.
+    let is_triple = source[string.start_byte()..content_start].contains("\"\"\"")
+        || source[string.start_byte()..content_start].contains("'''");
+    if new_content.contains('\n') {
+        if !is_triple {
+            return None;
+        }
+        new_content.push('\n');
+        new_content.push_str(indent);
+    } else if is_triple && content.trim_end_matches([' ', '\t']).ends_with('\n') {
+        // Preserve an existing closing-quotes-on-own-line shape.
+        new_content.push('\n');
+        new_content.push_str(indent);
+    }
+
+    if new_content == content {
+        return None;
+    }
+    Some(Fix::new(vec![Edit::replace(
+        content_start,
+        content_start + content.len(),
+        new_content,
+    )]))
 }
 
 /// Strip the common leading indentation from every line after the first.

@@ -1,0 +1,7 @@
+line-length = 72
+
+[python]
+docstring-style = "rest"
+
+[rules.docstring-line-length]
+fix = "rewrap"

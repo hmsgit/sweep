@@ -1,3 +1,4 @@
+mod docstring_line_length;
 mod docstring_style;
 mod local_imports;
 mod string_annotations;
@@ -9,5 +10,6 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(local_imports::LocalImports),
         Box::new(string_annotations::StringAnnotations),
         Box::new(docstring_style::DocstringStyle),
+        Box::new(docstring_line_length::DocstringLineLength),
     ]
 }
