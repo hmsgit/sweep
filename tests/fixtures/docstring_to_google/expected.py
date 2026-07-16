@@ -2,7 +2,8 @@
 
 
 def rest_fn(a, b):
-    """Combine.
+    """
+    Combine.
 
     Args:
         a (int): first thing.

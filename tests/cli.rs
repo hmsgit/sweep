@@ -152,7 +152,7 @@ fn config_is_resolved_per_file_for_monorepos() {
 
     // Both files carry the same reST docstring: wrong for alpha
     // (google), correct for beta (rest).
-    let body = "def f(x):\n    \"\"\"Do.\n\n    :param x: input\n    \"\"\"\n    return x\n";
+    let body = "def f(x):\n    \"\"\"\n    Do.\n\n    :param x: input\n    \"\"\"\n    return x\n";
     std::fs::write(root.join("apps/alpha/m.py"), body).unwrap();
     std::fs::write(root.join("apps/beta/m.py"), body).unwrap();
 
@@ -241,7 +241,7 @@ fn line_length_defaults_to_info_only() {
     let temp = tempfile::tempdir().unwrap();
     std::fs::write(temp.path().join("sweep.toml"), "").unwrap();
     let long_line = "x".repeat(90);
-    let source = format!("def f():\n    \"\"\"Summary.\n\n    {long_line}\n    \"\"\"\n");
+    let source = format!("def f():\n    \"\"\"\n    Summary.\n\n    {long_line}\n    \"\"\"\n");
     std::fs::write(temp.path().join("input.py"), &source).unwrap();
 
     let output = run_sweep(temp.path(), &["check", ".", "--fix"]);

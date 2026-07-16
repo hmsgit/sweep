@@ -70,6 +70,7 @@ pub struct Config {
     pub line_length: usize,
     pub docstring_style: DocStyle,
     pub docstring_level: Level,
+    pub docstring_start_level: Level,
     pub string_annotations_level: Level,
     pub local_imports_level: Level,
     pub known_first_party: Vec<String>,
@@ -83,6 +84,7 @@ impl Default for Config {
             line_length: DEFAULT_LINE_LENGTH,
             docstring_style: DocStyle::default(),
             docstring_level: Level::Error,
+            docstring_start_level: Level::Error,
             string_annotations_level: Level::Error,
             local_imports_level: Level::Error,
             known_first_party: Vec::new(),
@@ -113,6 +115,7 @@ struct RawPython {
 struct RawRules {
     local_imports: RawLocalImports,
     docstring_style: RawLevelOnly,
+    docstring_start: RawLevelOnly,
     string_annotations: RawLevelOnly,
     docstring_line_length: RawLevelOnly,
 }
@@ -252,6 +255,11 @@ impl Config {
                 .docstring_style
                 .level
                 .unwrap_or(defaults.docstring_level),
+            docstring_start_level: raw
+                .rules
+                .docstring_start
+                .level
+                .unwrap_or(defaults.docstring_start_level),
             string_annotations_level: raw
                 .rules
                 .string_annotations

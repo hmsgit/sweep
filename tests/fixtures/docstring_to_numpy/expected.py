@@ -2,7 +2,8 @@
 
 
 def g(x):
-    """Do.
+    """
+    Do.
 
     Parameters
     ----------

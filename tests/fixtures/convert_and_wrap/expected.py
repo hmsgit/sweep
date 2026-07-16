@@ -1,5 +1,6 @@
 def sync(records, batch_size=100):
-    """Synchronize the given records with the remote skills catalogue
+    """
+    Synchronize the given records with the remote skills catalogue
     and return a summary.
 
     :param records: the raw records to push upstream, already validated

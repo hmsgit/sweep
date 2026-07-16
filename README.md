@@ -72,6 +72,7 @@ See [Extending](#extending) for how to add a rule or a language.
 | [`local-imports`](#local-imports) | `import` / `from … import` inside functions | hoists to the module import block, section-sorted |
 | [`docstring-style`](#docstring-style) | docstrings following a different convention than configured; wrong inline markup | converts to the configured convention; fixes markup |
 | [`string-annotations`](#string-annotations) | quoted type annotations like `x: "Foo"` | unquotes; inserts `from __future__ import annotations` |
+| [`docstring-start`](#docstring-start) | multi-line docstrings whose content starts on the opening-quote line | moves the content to the next line, aligned with the quotes |
 | [`docstring-line-length`](#docstring-line-length) | docstring lines exceeding the line length | `info` by default (report only); at `warn`/`error` re-flows prose |
 
 ### local-imports
@@ -138,12 +139,12 @@ downgrades the finding to warn-only. Summary and description prose,
 multi-paragraph descriptions and per-field continuation lines survive
 the round trip.
 
-**Inline markup**: when the convention is reST, Markdown-style
-single-backtick spans are flagged and fixed to ``double backticks`` —
-this also covers docstrings that are otherwise fine. Roles like
-:func:`name` and doctest lines are left alone. No markup check runs for
-Google/NumPy conventions, because Sphinx's napoleon keeps reST inline
-markup inside those docstrings too.
+**Inline markup**: when the convention is reST, the house style is
+single-backtick spans — ``double-backtick`` reST literals are flagged
+and fixed down to `single`. (Strict-reST purists note: this is a
+deliberate house-style choice, not textbook reST.) Roles like
+:func:`name` and doctest lines are left alone; no markup check runs
+for Google/NumPy conventions.
 
 ### string-annotations
 
@@ -173,6 +174,25 @@ Caveat: code that inspects annotations at runtime with
 `__annotations__` raw will see strings after the future import lands —
 that is PEP 563 semantics, not a sweep quirk. Suppress per line if you
 depend on eager annotations.
+
+### docstring-start
+
+Multi-line docstrings start their content on the line *after* the
+opening quotes, aligned with them (pydocstyle's D213 shape):
+
+```python
+def emit(scope):
+    """
+    Emit a change event for consumers.
+
+    :param scope: tenant scope of the event.
+    """
+```
+
+Single-line docstrings stay inline. Closing quotes are never touched —
+they may share the last content line or sit on their own line, whichever
+the author wrote. Docstring rewrites from other rules (conversion,
+rewrap) emit this shape directly.
 
 ### docstring-line-length
 
@@ -268,6 +288,9 @@ level = "error"               # off | info | warn | error (default: error)
 known-first-party = ["mypkg"]
 
 [tool.sweep.rules.docstring-style]
+level = "error"               # default: error
+
+[tool.sweep.rules.docstring-start]
 level = "error"               # default: error
 
 [tool.sweep.rules.string-annotations]

@@ -2,7 +2,8 @@
 
 
 def google_fn(a, b=2):
-    """Add two numbers.
+    """
+    Add two numbers.
 
     :param a: first operand.
     :type a: int
@@ -17,7 +18,8 @@ def google_fn(a, b=2):
 
 
 def numpy_fn(x):
-    """Scale.
+    """
+    Scale.
 
     :param x: The value.
     :type x: float

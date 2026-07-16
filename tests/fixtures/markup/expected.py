@@ -2,7 +2,8 @@
 
 
 def f(x):
-    """Use ``foo`` with :func:`bar` and ``baz``.
+    """
+    Use `foo` with :func:`bar` and `baz`.
 
     >>> result = `left alone`
     """

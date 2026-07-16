@@ -2,7 +2,8 @@
 
 
 def f(data):
-    """Process data.
+    """
+    Process data.
 
     :param data: the quick brown fox jumps over the lazy dog
         and keeps jumping over it forever.
@@ -11,7 +12,8 @@ def f(data):
 
 
 def bullets(x):
-    """Keep structure.
+    """
+    Keep structure.
 
     :param x: options are listed below and must not be re-flowed even though this line is long:
         - alpha

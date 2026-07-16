@@ -243,26 +243,34 @@ pub fn splice_fix(
     let indent = base_indent(string, source)?;
 
     let mut new_content = String::new();
-    for (i, line) in rendered.lines().enumerate() {
-        if i > 0 {
-            new_content.push('\n');
-            if !line.is_empty() {
-                new_content.push_str(indent);
-            }
+    for line in rendered.lines() {
+        new_content.push('\n');
+        if !line.is_empty() {
+            new_content.push_str(indent);
         }
         new_content.push_str(line);
     }
+    let multi_line = rendered.contains('\n');
+    if !multi_line {
+        // Single-line content stays inline with the quotes.
+        new_content = rendered.to_string();
+    }
 
-    // Multi-line content needs triple quotes and a closing-quote line.
     let is_triple = source[string.start_byte()..content_start].contains("\"\"\"")
         || source[string.start_byte()..content_start].contains("'''");
-    if new_content.contains('\n') {
+    let closes_on_own_line = content.trim_end_matches([' ', '\t']).ends_with('\n');
+    if multi_line {
+        // Multi-line content needs triple quotes; it starts on the line
+        // after the opening quotes, aligned with them. Closing quotes
+        // keep the author's placement (own line only if it was so).
         if !is_triple {
             return None;
         }
-        new_content.push('\n');
-        new_content.push_str(indent);
-    } else if is_triple && content.trim_end_matches([' ', '\t']).ends_with('\n') {
+        if closes_on_own_line {
+            new_content.push('\n');
+            new_content.push_str(indent);
+        }
+    } else if is_triple && closes_on_own_line {
         // Preserve an existing closing-quotes-on-own-line shape.
         new_content.push('\n');
         new_content.push_str(indent);
