@@ -1,0 +1,143 @@
+//! End-to-end tests: run the sweep binary over fixture directories.
+//!
+//! Each directory under tests/fixtures/ holds a config (sweep.toml or
+//! pyproject.toml), an input.py and an expected.py. The test copies the
+//! fixture to a temp dir, runs `sweep check . --fix`, and asserts the
+//! result matches expected.py and that a second --fix run is a no-op
+//! (fixes are idempotent).
+
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output};
+
+fn fixture_dirs() -> Vec<PathBuf> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(&root)
+        .expect("fixtures dir")
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    dirs.sort();
+    assert!(!dirs.is_empty(), "no fixtures found in {}", root.display());
+    dirs
+}
+
+fn run_sweep(cwd: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_sweep"))
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .expect("failed to run sweep binary")
+}
+
+fn setup(fixture: &Path, temp: &Path) {
+    for entry in std::fs::read_dir(fixture).unwrap() {
+        let entry = entry.unwrap();
+        let name = entry.file_name();
+        if name == "expected.py" {
+            continue;
+        }
+        std::fs::copy(entry.path(), temp.join(&name)).unwrap();
+    }
+}
+
+#[test]
+fn fixtures_fix_to_expected_and_are_idempotent() {
+    for fixture in fixture_dirs() {
+        let name = fixture.file_name().unwrap().to_string_lossy().to_string();
+        let temp = tempfile::tempdir().unwrap();
+        setup(&fixture, temp.path());
+
+        let expected = std::fs::read_to_string(fixture.join("expected.py")).unwrap();
+
+        let output = run_sweep(temp.path(), &["check", ".", "--fix"]);
+        assert!(
+            output.status.code().is_some_and(|c| c <= 1),
+            "[{name}] sweep crashed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let fixed = std::fs::read_to_string(temp.path().join("input.py")).unwrap();
+        assert_eq!(
+            fixed,
+            expected,
+            "[{name}] --fix output does not match expected.py\nstdout:\n{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+
+        // Idempotency: a second --fix run must change nothing.
+        let second = run_sweep(temp.path(), &["check", ".", "--fix"]);
+        let refixed = std::fs::read_to_string(temp.path().join("input.py")).unwrap();
+        assert_eq!(
+            refixed,
+            expected,
+            "[{name}] second --fix run changed the file again\nstdout:\n{}",
+            String::from_utf8_lossy(&second.stdout)
+        );
+    }
+}
+
+#[test]
+fn fixed_fixtures_pass_check() {
+    // A file already in expected shape must produce no fixable findings.
+    for fixture in fixture_dirs() {
+        let name = fixture.file_name().unwrap().to_string_lossy().to_string();
+        let temp = tempfile::tempdir().unwrap();
+        setup(&fixture, temp.path());
+        std::fs::copy(fixture.join("expected.py"), temp.path().join("input.py")).unwrap();
+
+        let output = run_sweep(temp.path(), &["check", "."]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            !stdout.contains("[fixable]"),
+            "[{name}] expected.py still has fixable findings:\n{stdout}"
+        );
+    }
+}
+
+#[test]
+fn check_mode_reports_without_touching_files() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hoist");
+    let temp = tempfile::tempdir().unwrap();
+    setup(&fixture, temp.path());
+    let before = std::fs::read_to_string(temp.path().join("input.py")).unwrap();
+
+    let output = run_sweep(temp.path(), &["check", "."]);
+    assert_eq!(output.status.code(), Some(1), "diagnostics must exit 1");
+    let after = std::fs::read_to_string(temp.path().join("input.py")).unwrap();
+    assert_eq!(before, after, "check without --fix must not modify files");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("[local-imports]"), "stdout:\n{stdout}");
+}
+
+#[test]
+fn select_limits_rules() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hoist");
+    let temp = tempfile::tempdir().unwrap();
+    setup(&fixture, temp.path());
+
+    let output = run_sweep(
+        temp.path(),
+        &["check", ".", "--select", "string-annotations"],
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("[local-imports]"),
+        "--select must exclude other rules:\n{stdout}"
+    );
+
+    let bad = run_sweep(temp.path(), &["check", ".", "--select", "nope"]);
+    assert_eq!(bad.status.code(), Some(2), "unknown rule must exit 2");
+}
+
+#[test]
+fn explicit_file_paths_are_checked() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hoist");
+    let temp = tempfile::tempdir().unwrap();
+    setup(&fixture, temp.path());
+
+    // pre-commit style: pass the file, not the directory.
+    let output = run_sweep(temp.path(), &["check", "input.py"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("[local-imports]"), "stdout:\n{stdout}");
+}

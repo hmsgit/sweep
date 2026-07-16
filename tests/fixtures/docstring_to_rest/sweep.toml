@@ -1,0 +1,5 @@
+[python]
+docstring-style = "rest"
+
+[rules.local-imports]
+level = "off"
