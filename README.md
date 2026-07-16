@@ -220,10 +220,14 @@ for the tool.
 
 ## Configuration
 
-Configuration lives in `sweep.toml` at the repo root or `[tool.sweep]`
-inside `pyproject.toml`. Discovery starts at the checked path (not the
-process cwd) and walks upward; the nearest file wins. `--config PATH`
-overrides discovery entirely. Everything is optional:
+Configuration lives in `sweep.toml` or `[tool.sweep]` inside
+`pyproject.toml`. Discovery is **per file**: each checked file uses the
+nearest config found walking up from its own directory (`sweep.toml`
+beats `pyproject.toml` at the same level). This makes monorepos work
+out of the box — pre-commit config at the repo root, one
+`app/*/pyproject.toml` per app, and every file is judged by its own
+app's settings. `--config PATH` overrides discovery for all files.
+Everything is optional:
 
 ```toml
 [tool.sweep]

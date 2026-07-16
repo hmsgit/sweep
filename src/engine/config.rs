@@ -1,5 +1,7 @@
+use std::collections::HashMap;
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context as _, Result};
 use serde::Deserialize;
@@ -140,35 +142,86 @@ struct RawLevelOnly {
     level: Option<Level>,
 }
 
-impl Config {
-    /// Load configuration. Explicit path wins; otherwise search upward from
-    /// `start_dir` for `sweep.toml` or a `pyproject.toml` with `[tool.sweep]`.
-    /// A `pyproject.toml` without `[tool.sweep]` still contributes
-    /// first-party package hints (project name, isort/ruff config).
-    pub fn load(explicit: Option<&Path>, start_dir: &Path) -> Result<Self> {
-        if let Some(path) = explicit {
-            let text = std::fs::read_to_string(path)
-                .with_context(|| format!("reading config {}", path.display()))?;
-            return Self::from_toml(&text, path);
-        }
+/// Resolves the effective config per checked file: the nearest
+/// `sweep.toml` or `pyproject.toml` in the file's parent directories
+/// wins, so a monorepo with pre-commit at the root and one
+/// `app/*/pyproject.toml` per app gets each file checked against its
+/// own app's config. An explicit `--config` path overrides discovery
+/// for every file. Lookups are memoized per directory.
+pub struct ConfigResolver {
+    explicit: Option<Arc<Config>>,
+    cache: Mutex<HashMap<PathBuf, Arc<Config>>>,
+    fallback: Arc<Config>,
+}
 
-        let mut dir = Some(start_dir.to_path_buf());
-        while let Some(d) = dir {
-            let sweep_toml = d.join("sweep.toml");
-            if sweep_toml.is_file() {
-                let text = std::fs::read_to_string(&sweep_toml)?;
-                return Self::from_toml(&text, &sweep_toml);
+impl ConfigResolver {
+    pub fn new(explicit: Option<&Path>) -> Result<Self> {
+        let explicit = match explicit {
+            Some(path) => {
+                let text = std::fs::read_to_string(path)
+                    .with_context(|| format!("reading config {}", path.display()))?;
+                Some(Arc::new(Config::from_toml(&text, path)?))
             }
-            let pyproject = d.join("pyproject.toml");
-            if pyproject.is_file() {
-                let text = std::fs::read_to_string(&pyproject)?;
-                return Self::from_toml(&text, &pyproject);
-            }
-            dir = d.parent().map(Path::to_path_buf);
-        }
-        Ok(Self::default())
+            None => None,
+        };
+        Ok(Self {
+            explicit,
+            cache: Mutex::new(HashMap::new()),
+            fallback: Arc::new(Config::default()),
+        })
     }
 
+    /// Effective config for a file or directory path.
+    pub fn for_path(&self, path: &Path) -> Result<Arc<Config>> {
+        if let Some(config) = &self.explicit {
+            return Ok(config.clone());
+        }
+
+        let abs = path
+            .canonicalize()
+            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default().join(path));
+        let start = if abs.is_dir() {
+            abs.as_path()
+        } else {
+            abs.parent().unwrap_or(abs.as_path())
+        };
+
+        // Walk upward until a config file or a cached directory is found.
+        let mut visited: Vec<PathBuf> = Vec::new();
+        let mut found: Option<Arc<Config>> = None;
+        for dir in start.ancestors() {
+            if let Some(hit) = self.cache.lock().unwrap().get(dir) {
+                found = Some(hit.clone());
+                break;
+            }
+            visited.push(dir.to_path_buf());
+
+            let mut config_file = None;
+            let sweep_toml = dir.join("sweep.toml");
+            let pyproject = dir.join("pyproject.toml");
+            if sweep_toml.is_file() {
+                config_file = Some(sweep_toml);
+            } else if pyproject.is_file() {
+                config_file = Some(pyproject);
+            }
+            if let Some(file) = config_file {
+                let text = std::fs::read_to_string(&file)
+                    .with_context(|| format!("reading config {}", file.display()))?;
+                found = Some(Arc::new(Config::from_toml(&text, &file)?));
+                break;
+            }
+        }
+
+        let config = found.unwrap_or_else(|| self.fallback.clone());
+        let mut cache = self.cache.lock().unwrap();
+        for dir in visited {
+            cache.insert(dir, config.clone());
+        }
+        Ok(config)
+    }
+}
+
+impl Config {
     fn from_toml(text: &str, path: &Path) -> Result<Self> {
         let doc = toml::Value::Table(
             text.parse::<toml::Table>()

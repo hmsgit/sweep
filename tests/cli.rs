@@ -131,6 +131,55 @@ fn select_limits_rules() {
 }
 
 #[test]
+fn config_is_resolved_per_file_for_monorepos() {
+    // pre-commit runs at the repo root; each app carries its own
+    // pyproject.toml. Every file must be judged by its nearest config.
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path();
+    std::fs::create_dir_all(root.join("apps/alpha")).unwrap();
+    std::fs::create_dir_all(root.join("apps/beta")).unwrap();
+
+    std::fs::write(
+        root.join("apps/alpha/pyproject.toml"),
+        "[tool.sweep.python]\ndocstring-style = \"google\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("apps/beta/pyproject.toml"),
+        "[tool.sweep.python]\ndocstring-style = \"rest\"\n",
+    )
+    .unwrap();
+
+    // Both files carry the same reST docstring: wrong for alpha
+    // (google), correct for beta (rest).
+    let body = "def f(x):\n    \"\"\"Do.\n\n    :param x: input\n    \"\"\"\n    return x\n";
+    std::fs::write(root.join("apps/alpha/m.py"), body).unwrap();
+    std::fs::write(root.join("apps/beta/m.py"), body).unwrap();
+
+    let output = run_sweep(root, &["check", "."]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("alpha") && stdout.contains("docstring is reST-style"),
+        "alpha must be flagged against its google config:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("beta"),
+        "beta's reST docstring matches its own config:\n{stdout}"
+    );
+
+    // Explicit --config overrides discovery for every file.
+    let output = run_sweep(
+        root,
+        &["check", ".", "--config", "apps/alpha/pyproject.toml"],
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("beta"),
+        "--config must apply the google convention to beta too:\n{stdout}"
+    );
+}
+
+#[test]
 fn line_length_defaults_to_warn_only() {
     // No config: limit 79, level warn, no rewrap — the long docstring
     // line is reported but not fixable, and --fix leaves it alone.

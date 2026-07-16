@@ -9,7 +9,7 @@ use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 use rayon::prelude::*;
 
-use engine::config::Config;
+use engine::config::ConfigResolver;
 use engine::rule::Rule;
 use engine::runner::{FileReport, check_file};
 
@@ -82,21 +82,10 @@ fn check_command(
     ignore: &[String],
     config_path: Option<&Path>,
 ) -> Result<ExitCode> {
-    // Discover config from the checked paths, not the process cwd, so
-    // `sweep check some/other/project` picks up that project's config.
-    let cwd = std::env::current_dir()?;
-    let start_dir = match paths.first() {
-        Some(p) => {
-            let abs = p.canonicalize().unwrap_or_else(|_| cwd.join(p));
-            if abs.is_dir() {
-                abs
-            } else {
-                abs.parent().map(Path::to_path_buf).unwrap_or(cwd)
-            }
-        }
-        None => cwd,
-    };
-    let config = Config::load(config_path, &start_dir)?;
+    // Config is resolved per file: each file uses the nearest sweep.toml
+    // or pyproject.toml above it, so monorepos with per-app configs work
+    // when pre-commit runs from the repo root. --config overrides all.
+    let resolver = ConfigResolver::new(config_path)?;
 
     let all_rules = langs::python::rules::all_rules();
     let known: BTreeSet<&str> = all_rules.iter().map(|r| r.name()).collect();
@@ -115,10 +104,11 @@ fn check_command(
         .filter(|r| !ignore.iter().any(|s| s == r.name()))
         .collect();
 
-    let files = collect_files(paths, &config)?;
+    let files = collect_files(paths, &resolver)?;
     let mut reports: Vec<FileReport> = files
         .par_iter()
         .map(|path| -> Result<FileReport> {
+            let config = resolver.for_path(path)?;
             let source = std::fs::read_to_string(path)
                 .with_context(|| format!("reading {}", path.display()))?;
             let report = check_file(path, &source, &config, &rules, fix)?;
@@ -179,7 +169,7 @@ fn check_command(
     })
 }
 
-fn collect_files(paths: &[PathBuf], config: &Config) -> Result<Vec<PathBuf>> {
+fn collect_files(paths: &[PathBuf], resolver: &ConfigResolver) -> Result<Vec<PathBuf>> {
     let mut files = BTreeSet::new();
     for path in paths {
         if path.is_file() {
@@ -199,8 +189,10 @@ fn collect_files(paths: &[PathBuf], config: &Config) -> Result<Vec<PathBuf>> {
             if !is_supported(p) {
                 continue;
             }
+            // Excludes come from the config governing each file.
             let display = p.to_string_lossy();
-            if config
+            if resolver
+                .for_path(p)?
                 .exclude
                 .iter()
                 .any(|pat| display.contains(pat.as_str()))
