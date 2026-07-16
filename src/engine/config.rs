@@ -162,7 +162,8 @@ struct RawSweep {
 #[serde(default, rename_all = "kebab-case")]
 struct RawPython {
     docstring_style: Option<DocStyle>,
-    /// Exception list for the no-emoji rule.
+    /// The one knob for the no-emoji rule: its presence enables the
+    /// rule (at warn), its value is the exception list ("" = none).
     allowed_emojis: Option<String>,
 }
 
@@ -179,7 +180,6 @@ struct RawRules {
     casing_enum_key: RawCasing,
     casing_enum_val: RawCasing,
     casing_module_const: RawCasing,
-    no_emoji: RawRuleEntry,
 }
 
 /// Casing rules accept `casing-enum-key = "lower"` (case shorthand,
@@ -475,11 +475,11 @@ impl Config {
             casing_enum_key: raw.rules.casing_enum_key.resolve(path)?,
             casing_enum_val: raw.rules.casing_enum_val.resolve(path)?,
             casing_module_const: raw.rules.casing_module_const.resolve(path)?,
-            no_emoji_level: raw
-                .rules
-                .no_emoji
-                .level()
-                .unwrap_or(defaults.no_emoji_level),
+            no_emoji_level: if raw.python.allowed_emojis.is_some() {
+                Level::Warn
+            } else {
+                Level::Off
+            },
             allowed_emojis: raw
                 .python
                 .allowed_emojis
@@ -616,7 +616,6 @@ allowed-emojis = "→✓"
 dict-kwargs = "warn"
 casing-enum-key = "lower"
 casing-module-const = { level = "error", case = "upper" }
-no-emoji = "warn"
 "#;
         let c = Config::from_toml(text, Path::new("pyproject.toml")).unwrap();
         assert_eq!(c.dict_kwargs_level, Level::Warn);
@@ -625,16 +624,17 @@ no-emoji = "warn"
         assert_eq!(c.casing_module_const.level, Level::Error);
         assert_eq!(c.casing_module_const.case, Case::Upper);
         assert_eq!(c.casing_enum_val.level, Level::Off);
+        // allowed-emojis presence is what enables no-emoji.
         assert_eq!(c.no_emoji_level, Level::Warn);
         assert_eq!(c.allowed_emojis, vec!['→', '✓']);
 
-        // A bare level enables the rule with no exceptions.
+        // Empty string: enabled, no exceptions.
         let c = Config::from_toml(
-            "[tool.sweep.rules]\nno-emoji = \"error\"\n",
+            "[tool.sweep.python]\nallowed-emojis = \"\"\n",
             Path::new("pyproject.toml"),
         )
         .unwrap();
-        assert_eq!(c.no_emoji_level, Level::Error);
+        assert_eq!(c.no_emoji_level, Level::Warn);
         assert!(c.allowed_emojis.is_empty());
     }
 

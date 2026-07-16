@@ -85,7 +85,7 @@ See [Extending](#extending) for how to add a rule or a language.
 | `casing-enum-key` | enum member names not in the configured case | warn-only (cross-file rename) |
 | `casing-enum-val` | enum string values not in the configured case | warn-only (changes serialized data) |
 | `casing-module-const` | module constant names not in the configured case | warn-only (cross-file rename) |
-| `no-emoji` | any emoji/unicode icon (pictographs, ✓/✗, arrows, shapes) not in the allowed set | deletes in comments/docstrings; warn-only inside strings |
+| `no-emoji` | any emoji/unicode icon (pictographs, ✓/✗, arrows, shapes) not in the allowed set — enabled by setting `allowed-emojis` | deletes in comments/docstrings; warn-only inside strings |
 
 ### imports-ban-local
 
@@ -236,14 +236,15 @@ The core rules above are on by default; these six encode house
 conventions and stay `off` until a project opts in:
 
 ```toml
+[tool.sweep.python]
+allowed-emojis = ""              # presence enables no-emoji; "" = no exceptions
+
 [tool.sweep.rules]
 dict-kwargs = "warn"
 annotate-module-const = "warn"
 casing-enum-key = "lower"        # lower | upper (shorthand enables at warn)
 casing-enum-val = "lower"
 casing-module-const = "lower"
-no-emoji = "warn"                # flag emoji/icons; exceptions go in
-                                 # [tool.sweep.python] allowed-emojis = "→✓"
 ```
 
 Notes:
@@ -263,11 +264,12 @@ Notes:
   from module state and are never flagged.
 - Casing rules take a table form too:
   `casing-module-const = { level = "error", case = "upper" }`.
-- `no-emoji` detects emoji blocks, dingbats (✓/✗), arrows (→), misc
-  technical and geometric-shape characters; invisible emoji plumbing
-  (variation selectors, ZWJ) is cleaned up with its base character but
-  never flagged alone. The exception list lives with the language
-  settings: `[tool.sweep.python] allowed-emojis = "→✓"`.
+- `no-emoji` has a single knob: `[tool.sweep.python] allowed-emojis`.
+  Its presence enables the rule (at warn); its value is the exception
+  list (`""` = flag every emoji/icon). Detected: emoji blocks, dingbats
+  (✓/✗), arrows (→), misc technical and geometric-shape characters;
+  invisible emoji plumbing (variation selectors, ZWJ) is cleaned up
+  with its base character but never flagged alone.
 
 ## Severity levels
 
@@ -339,7 +341,8 @@ line-length = 79              # falls back to [tool.ruff].line-length, then 79
 
 [tool.sweep.python]
 docstring-style = "rest"      # rest (default) | google | numpy
-allowed-emojis = ""           # exception list for the no-emoji rule
+# allowed-emojis = "→✓"       # set to enable no-emoji; the value is the
+                              # exception list ("" = flag every emoji/icon)
 
 [tool.sweep.rules.imports-ban-local]
 level = "error"               # off | info | warn | error (default: error)
