@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "Fast, deterministic cleanup passes for pre-commit: local imports, docstring conventions, string annotations"
 license = "MIT"
+repository = "https://github.com/hmsgit/sweep"
 
 [dependencies]
 anyhow = "1.0.103"

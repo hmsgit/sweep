@@ -15,7 +15,7 @@ non-conflicting fixes and re-checks until nothing is left to do.
 ```yaml
 # .pre-commit-config.yaml
 repos:
-  - repo: <this repo>
+  - repo: https://github.com/hmsgit/sweep
     rev: v0.1.0
     hooks:
       - id: sweep        # check only
