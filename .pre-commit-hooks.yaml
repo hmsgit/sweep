@@ -1,0 +1,13 @@
+- id: sweep
+  name: sweep check
+  description: Warn on local imports, docstring-style mismatches and string type annotations.
+  entry: sweep check
+  language: rust
+  types: [python]
+
+- id: sweep-fix
+  name: sweep check --fix
+  description: Like sweep, but applies fixes in place (hoist imports, convert docstrings, unquote annotations).
+  entry: sweep check --fix
+  language: rust
+  types: [python]
