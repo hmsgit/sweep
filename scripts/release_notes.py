@@ -6,8 +6,7 @@ Maturity ranks: beta < rc < stable. A beta release diffs against the
 previous release of any kind; an rc folds in all betas since the last
 rc/stable; a stable folds in every pre-release since the last stable.
 
-Output: a Summary section bulleting every commit subject, then a
-Details section with each commit's body under its subject. `Release
+Output: a Summary section bulleting every commit subject. `Release
 x.y.z` bump commits and merge commits are skipped.
 
 Usage: release_notes.py <tag>       # e.g. release_notes.py v0.1.0b2
@@ -87,16 +86,6 @@ def main() -> None:
     lines.append("")
     for subject, _ in entries:
         lines.append(f"- {subject}")
-
-    detailed = [(s, b) for s, b in entries if b]
-    if detailed:
-        lines.append("")
-        lines.append("## Details")
-        for subject, body in detailed:
-            lines.append("")
-            lines.append(f"### {subject}")
-            lines.append("")
-            lines.append(body)
 
     print("\n".join(lines))
 
