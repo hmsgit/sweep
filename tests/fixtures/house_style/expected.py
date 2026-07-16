@@ -1,0 +1,19 @@
+"""House style fixture."""
+
+from typing import Final
+from enum import Enum
+
+TIMEOUT: Final = 5
+RETRIES: Final[int] = 3  # tuned
+
+
+class Color(Enum):
+    RED = "RED"
+    green = "green"
+
+
+def load():
+    options = dict(depth=2, flags=dict(a=1))
+    weird = {"not-ident": 1}
+    banner = "🎉 launched"
+    return options, weird, banner

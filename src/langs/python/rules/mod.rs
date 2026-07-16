@@ -1,3 +1,7 @@
+mod banned_emoji;
+mod casing;
+mod const_final;
+mod dict_call;
 mod docstring_line_length;
 mod docstring_start;
 mod docstring_style;
@@ -13,5 +17,11 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(docstring_style::DocstringStyle),
         Box::new(docstring_start::DocstringStart),
         Box::new(docstring_line_length::DocstringLineLength),
+        Box::new(dict_call::DictCall),
+        Box::new(const_final::ConstFinal),
+        Box::new(casing::CasingEnumKey),
+        Box::new(casing::CasingEnumVal),
+        Box::new(casing::CasingModuleConst),
+        Box::new(banned_emoji::BannedEmoji),
     ]
 }

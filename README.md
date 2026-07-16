@@ -75,6 +75,18 @@ See [Extending](#extending) for how to add a rule or a language.
 | [`docstring-start`](#docstring-start) | multi-line docstrings whose content starts on the opening-quote line | moves the content to the next line, aligned with the quotes |
 | [`docstring-line-length`](#docstring-line-length) | docstring lines exceeding the line length | `info` by default (report only); at `warn`/`error` re-flows prose |
 
+**House-style rules** — opt-in, `off` by default (see
+[House-style rules](#house-style-rules)):
+
+| rule | detects | `--fix` |
+| --- | --- | --- |
+| `dict-call` | `{"key": val}` literals where every key is an identifier string | rewrites to `dict(key=val)` |
+| `const-final` | UPPER_CASE module constants without a `Final` annotation | adds `: Final` / wraps as `Final[T]`, inserts the typing import |
+| `casing-enum-key` | enum member names not in the configured case | warn-only (cross-file rename) |
+| `casing-enum-val` | enum string values not in the configured case | warn-only (changes serialized data) |
+| `casing-module-const` | module constant names not in the configured case | warn-only (cross-file rename) |
+| `banned-emoji` | configured characters (emoji, ✓/✗, …) anywhere in the file | deletes in comments/docstrings; warn-only inside strings |
+
 ### local-imports
 
 Imports belong at module level. Function-level imports usually exist for
@@ -217,6 +229,39 @@ within the limit in one pass.
 Never re-flowed: bullet lists, numbered lists, doctest lines, reST
 directives, and `::` literal-block introducers. A line that cannot be
 shortened (one long word, a URL) keeps its warning and is left alone.
+
+## House-style rules
+
+The core rules above are on by default; these six encode house
+conventions and stay `off` until a project opts in:
+
+```toml
+[tool.sweep.rules]
+dict-call = "warn"
+const-final = "warn"
+casing-enum-key = "lower"        # lower | upper (shorthand enables at warn)
+casing-enum-val = "lower"
+casing-module-const = "lower"
+banned-emoji = "✓✗🎉→"           # the banned character set (enables at warn)
+```
+
+Notes:
+
+- `dict-call` skips dicts it can't express faithfully: non-string or
+  non-identifier keys, Python keywords, duplicate keys, or comments
+  inside the literal. Splats pass through (`{**a, "b": 1}` →
+  `dict(**a, b=1)`).
+- `const-final` only annotates; whether the *name* should be
+  `UPPER_CASE` or `lower_case` is `casing-module-const`'s business —
+  the two are independent knobs.
+- The casing rules never autofix: renaming an identifier safely needs
+  cross-file refactoring, and changing an enum's string *value* changes
+  serialized data. They warn; a human renames.
+- Constants are recognized by SCREAMING_CASE or an existing `Final`
+  annotation; plain lowercase module assignments are indistinguishable
+  from module state and are never flagged.
+- Casing rules take a table form too:
+  `casing-module-const = { level = "error", case = "upper" }`.
 
 ## Severity levels
 

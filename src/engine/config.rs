@@ -62,6 +62,45 @@ impl Level {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Case {
+    Lower,
+    Upper,
+}
+
+impl Case {
+    pub fn matches(self, name: &str) -> bool {
+        match self {
+            Case::Lower => !name.chars().any(|c| c.is_uppercase()),
+            Case::Upper => !name.chars().any(|c| c.is_lowercase()),
+        }
+    }
+
+    pub fn describe(self) -> &'static str {
+        match self {
+            Case::Lower => "lower_case",
+            Case::Upper => "UPPER_CASE",
+        }
+    }
+}
+
+/// Config for the casing-* rules: a level plus the target case.
+#[derive(Debug, Clone, Copy)]
+pub struct CasingConfig {
+    pub level: Level,
+    pub case: Case,
+}
+
+impl Default for CasingConfig {
+    fn default() -> Self {
+        Self {
+            level: Level::Off,
+            case: Case::Lower,
+        }
+    }
+}
+
 pub const DEFAULT_LINE_LENGTH: usize = 79;
 
 #[derive(Debug, Clone)]
@@ -75,6 +114,13 @@ pub struct Config {
     pub local_imports_level: Level,
     pub known_first_party: Vec<String>,
     pub docstring_line_length_level: Level,
+    pub dict_call_level: Level,
+    pub const_final_level: Level,
+    pub casing_enum_key: CasingConfig,
+    pub casing_enum_val: CasingConfig,
+    pub casing_module_const: CasingConfig,
+    pub banned_emoji_level: Level,
+    pub banned_emoji_chars: Vec<char>,
 }
 
 impl Default for Config {
@@ -89,6 +135,14 @@ impl Default for Config {
             local_imports_level: Level::Error,
             known_first_party: Vec::new(),
             docstring_line_length_level: Level::Info,
+            // House-style rules are opt-in.
+            dict_call_level: Level::Off,
+            const_final_level: Level::Off,
+            casing_enum_key: CasingConfig::default(),
+            casing_enum_val: CasingConfig::default(),
+            casing_module_const: CasingConfig::default(),
+            banned_emoji_level: Level::Off,
+            banned_emoji_chars: Vec::new(),
         }
     }
 }
@@ -118,6 +172,117 @@ struct RawRules {
     docstring_start: RawRuleEntry,
     string_annotations: RawRuleEntry,
     docstring_line_length: RawRuleEntry,
+    dict_call: RawRuleEntry,
+    const_final: RawRuleEntry,
+    casing_enum_key: RawCasing,
+    casing_enum_val: RawCasing,
+    casing_module_const: RawCasing,
+    banned_emoji: RawBannedEmoji,
+}
+
+/// Casing rules accept `casing-enum-key = "lower"` (case shorthand,
+/// which also enables the rule at warn), a bare level, or the table
+/// form with `level` and `case`.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawCasing {
+    Token(String),
+    Table(RawCasingTable),
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default, rename_all = "kebab-case")]
+struct RawCasingTable {
+    level: Option<Level>,
+    case: Option<Case>,
+}
+
+impl RawCasing {
+    fn resolve(&self, path: &Path) -> Result<CasingConfig> {
+        let defaults = CasingConfig::default();
+        match self {
+            RawCasing::Token(token) => match token.as_str() {
+                "lower" => Ok(CasingConfig {
+                    level: Level::Warn,
+                    case: Case::Lower,
+                }),
+                "upper" => Ok(CasingConfig {
+                    level: Level::Warn,
+                    case: Case::Upper,
+                }),
+                "off" => Ok(CasingConfig {
+                    level: Level::Off,
+                    ..defaults
+                }),
+                "info" => Ok(CasingConfig {
+                    level: Level::Info,
+                    ..defaults
+                }),
+                "warn" => Ok(CasingConfig {
+                    level: Level::Warn,
+                    ..defaults
+                }),
+                "error" => Ok(CasingConfig {
+                    level: Level::Error,
+                    ..defaults
+                }),
+                other => anyhow::bail!(
+                    "invalid casing value {other:?} in {} (expected lower|upper or a level)",
+                    path.display()
+                ),
+            },
+            RawCasing::Table(t) => Ok(CasingConfig {
+                level: t.level.unwrap_or(Level::Warn),
+                case: t.case.unwrap_or(defaults.case),
+            }),
+        }
+    }
+}
+
+impl Default for RawCasing {
+    fn default() -> Self {
+        RawCasing::Table(RawCasingTable {
+            level: Some(Level::Off),
+            case: None,
+        })
+    }
+}
+
+/// banned-emoji accepts `banned-emoji = "✓✗🎉"` (the banned set, which
+/// enables the rule at warn) or the table form with `level` and `chars`.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawBannedEmoji {
+    Chars(String),
+    Table(RawBannedEmojiTable),
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default, rename_all = "kebab-case")]
+struct RawBannedEmojiTable {
+    level: Option<Level>,
+    chars: Option<String>,
+}
+
+impl RawBannedEmoji {
+    fn resolve(&self) -> (Level, Vec<char>) {
+        match self {
+            RawBannedEmoji::Chars(chars) => (Level::Warn, chars.chars().collect()),
+            RawBannedEmoji::Table(t) => (
+                t.level.unwrap_or(Level::Warn),
+                t.chars.as_deref().unwrap_or("").chars().collect(),
+            ),
+        }
+    }
+}
+
+impl Default for RawBannedEmoji {
+    fn default() -> Self {
+        RawBannedEmoji::Table(RawBannedEmojiTable {
+            level: Some(Level::Off),
+            chars: None,
+        })
+    }
 }
 
 /// A rule entry accepts either the bare-level shorthand
@@ -332,6 +497,21 @@ impl Config {
                 .docstring_line_length
                 .level()
                 .unwrap_or(defaults.docstring_line_length_level),
+            dict_call_level: raw
+                .rules
+                .dict_call
+                .level()
+                .unwrap_or(defaults.dict_call_level),
+            const_final_level: raw
+                .rules
+                .const_final
+                .level()
+                .unwrap_or(defaults.const_final_level),
+            casing_enum_key: raw.rules.casing_enum_key.resolve(path)?,
+            casing_enum_val: raw.rules.casing_enum_val.resolve(path)?,
+            casing_module_const: raw.rules.casing_module_const.resolve(path)?,
+            banned_emoji_level: raw.rules.banned_emoji.resolve().0,
+            banned_emoji_chars: raw.rules.banned_emoji.resolve().1,
         };
 
         if is_pyproject {
@@ -443,6 +623,32 @@ level = "warn"
         assert_eq!(c.string_annotations_level, Level::Off);
         assert_eq!(c.docstring_line_length_level, Level::Warn);
         assert_eq!(c.docstring_start_level, Level::Error); // untouched default
+    }
+
+    #[test]
+    fn house_style_rules_default_off_and_accept_shorthand() {
+        let c = Config::from_toml("", Path::new("pyproject.toml")).unwrap();
+        assert_eq!(c.dict_call_level, Level::Off);
+        assert_eq!(c.const_final_level, Level::Off);
+        assert_eq!(c.casing_enum_key.level, Level::Off);
+        assert_eq!(c.banned_emoji_level, Level::Off);
+
+        let text = r#"
+[tool.sweep.rules]
+dict-call = "warn"
+casing-enum-key = "lower"
+casing-module-const = { level = "error", case = "upper" }
+banned-emoji = "✓✗"
+"#;
+        let c = Config::from_toml(text, Path::new("pyproject.toml")).unwrap();
+        assert_eq!(c.dict_call_level, Level::Warn);
+        assert_eq!(c.casing_enum_key.level, Level::Warn);
+        assert_eq!(c.casing_enum_key.case, Case::Lower);
+        assert_eq!(c.casing_module_const.level, Level::Error);
+        assert_eq!(c.casing_module_const.case, Case::Upper);
+        assert_eq!(c.casing_enum_val.level, Level::Off);
+        assert_eq!(c.banned_emoji_level, Level::Warn);
+        assert_eq!(c.banned_emoji_chars, vec!['✓', '✗']);
     }
 
     #[test]
