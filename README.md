@@ -85,7 +85,7 @@ See [Extending](#extending) for how to add a rule or a language.
 | `casing-enum-key` | enum member names not in the configured case | warn-only (cross-file rename) |
 | `casing-enum-val` | enum string values not in the configured case | warn-only (changes serialized data) |
 | `casing-module-const` | module constant names not in the configured case | warn-only (cross-file rename) |
-| `banned-emoji` | configured characters (emoji, ✓/✗, …) anywhere in the file | deletes in comments/docstrings; warn-only inside strings |
+| `no-emoji` | any emoji/unicode icon (pictographs, ✓/✗, arrows, shapes) not in the allowed set | deletes in comments/docstrings; warn-only inside strings |
 
 ### local-imports
 
@@ -242,7 +242,8 @@ const-final = "warn"
 casing-enum-key = "lower"        # lower | upper (shorthand enables at warn)
 casing-enum-val = "lower"
 casing-module-const = "lower"
-banned-emoji = "✓✗🎉→"           # the banned character set (enables at warn)
+no-emoji = "warn"                # flag every emoji/icon…
+# no-emoji = "→✓"                # …or allow these and flag the rest (enables at warn)
 ```
 
 Notes:
@@ -262,6 +263,11 @@ Notes:
   from module state and are never flagged.
 - Casing rules take a table form too:
   `casing-module-const = { level = "error", case = "upper" }`.
+- `no-emoji` detects emoji blocks, dingbats (✓/✗), arrows (→), misc
+  technical and geometric-shape characters; invisible emoji plumbing
+  (variation selectors, ZWJ) is cleaned up with its base character but
+  never flagged alone. Table form:
+  `no-emoji = { level = "error", allowed = "→" }`.
 
 ## Severity levels
 

@@ -119,8 +119,8 @@ pub struct Config {
     pub casing_enum_key: CasingConfig,
     pub casing_enum_val: CasingConfig,
     pub casing_module_const: CasingConfig,
-    pub banned_emoji_level: Level,
-    pub banned_emoji_chars: Vec<char>,
+    pub no_emoji_level: Level,
+    pub allowed_emojis: Vec<char>,
 }
 
 impl Default for Config {
@@ -141,8 +141,8 @@ impl Default for Config {
             casing_enum_key: CasingConfig::default(),
             casing_enum_val: CasingConfig::default(),
             casing_module_const: CasingConfig::default(),
-            banned_emoji_level: Level::Off,
-            banned_emoji_chars: Vec::new(),
+            no_emoji_level: Level::Off,
+            allowed_emojis: Vec::new(),
         }
     }
 }
@@ -177,7 +177,7 @@ struct RawRules {
     casing_enum_key: RawCasing,
     casing_enum_val: RawCasing,
     casing_module_const: RawCasing,
-    banned_emoji: RawBannedEmoji,
+    no_emoji: RawNoEmoji,
 }
 
 /// Casing rules accept `casing-enum-key = "lower"` (case shorthand,
@@ -248,39 +248,46 @@ impl Default for RawCasing {
     }
 }
 
-/// banned-emoji accepts `banned-emoji = "✓✗🎉"` (the banned set, which
-/// enables the rule at warn) or the table form with `level` and `chars`.
+/// no-emoji accepts a bare level (`no-emoji = "warn"`), a bare string
+/// of allowed characters (`no-emoji = "→✓"`, which enables the rule at
+/// warn), or the table form with `level` and `allowed`.
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
-enum RawBannedEmoji {
-    Chars(String),
-    Table(RawBannedEmojiTable),
+enum RawNoEmoji {
+    Token(String),
+    Table(RawNoEmojiTable),
 }
 
 #[derive(Debug, Deserialize, Default)]
 #[serde(default, rename_all = "kebab-case")]
-struct RawBannedEmojiTable {
+struct RawNoEmojiTable {
     level: Option<Level>,
-    chars: Option<String>,
+    allowed: Option<String>,
 }
 
-impl RawBannedEmoji {
+impl RawNoEmoji {
     fn resolve(&self) -> (Level, Vec<char>) {
         match self {
-            RawBannedEmoji::Chars(chars) => (Level::Warn, chars.chars().collect()),
-            RawBannedEmoji::Table(t) => (
+            RawNoEmoji::Token(token) => match token.as_str() {
+                "off" => (Level::Off, Vec::new()),
+                "info" => (Level::Info, Vec::new()),
+                "warn" => (Level::Warn, Vec::new()),
+                "error" => (Level::Error, Vec::new()),
+                allowed => (Level::Warn, allowed.chars().collect()),
+            },
+            RawNoEmoji::Table(t) => (
                 t.level.unwrap_or(Level::Warn),
-                t.chars.as_deref().unwrap_or("").chars().collect(),
+                t.allowed.as_deref().unwrap_or("").chars().collect(),
             ),
         }
     }
 }
 
-impl Default for RawBannedEmoji {
+impl Default for RawNoEmoji {
     fn default() -> Self {
-        RawBannedEmoji::Table(RawBannedEmojiTable {
+        RawNoEmoji::Table(RawNoEmojiTable {
             level: Some(Level::Off),
-            chars: None,
+            allowed: None,
         })
     }
 }
@@ -510,8 +517,8 @@ impl Config {
             casing_enum_key: raw.rules.casing_enum_key.resolve(path)?,
             casing_enum_val: raw.rules.casing_enum_val.resolve(path)?,
             casing_module_const: raw.rules.casing_module_const.resolve(path)?,
-            banned_emoji_level: raw.rules.banned_emoji.resolve().0,
-            banned_emoji_chars: raw.rules.banned_emoji.resolve().1,
+            no_emoji_level: raw.rules.no_emoji.resolve().0,
+            allowed_emojis: raw.rules.no_emoji.resolve().1,
         };
 
         if is_pyproject {
@@ -631,14 +638,14 @@ level = "warn"
         assert_eq!(c.dict_call_level, Level::Off);
         assert_eq!(c.const_final_level, Level::Off);
         assert_eq!(c.casing_enum_key.level, Level::Off);
-        assert_eq!(c.banned_emoji_level, Level::Off);
+        assert_eq!(c.no_emoji_level, Level::Off);
 
         let text = r#"
 [tool.sweep.rules]
 dict-call = "warn"
 casing-enum-key = "lower"
 casing-module-const = { level = "error", case = "upper" }
-banned-emoji = "✓✗"
+no-emoji = "→✓"
 "#;
         let c = Config::from_toml(text, Path::new("pyproject.toml")).unwrap();
         assert_eq!(c.dict_call_level, Level::Warn);
@@ -647,8 +654,17 @@ banned-emoji = "✓✗"
         assert_eq!(c.casing_module_const.level, Level::Error);
         assert_eq!(c.casing_module_const.case, Case::Upper);
         assert_eq!(c.casing_enum_val.level, Level::Off);
-        assert_eq!(c.banned_emoji_level, Level::Warn);
-        assert_eq!(c.banned_emoji_chars, vec!['✓', '✗']);
+        assert_eq!(c.no_emoji_level, Level::Warn);
+        assert_eq!(c.allowed_emojis, vec!['→', '✓']);
+
+        // A bare level enables the rule with no exceptions.
+        let c = Config::from_toml(
+            "[tool.sweep.rules]\nno-emoji = \"error\"\n",
+            Path::new("pyproject.toml"),
+        )
+        .unwrap();
+        assert_eq!(c.no_emoji_level, Level::Error);
+        assert!(c.allowed_emojis.is_empty());
     }
 
     #[test]

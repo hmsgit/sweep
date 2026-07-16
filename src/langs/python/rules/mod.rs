@@ -1,4 +1,3 @@
-mod banned_emoji;
 mod casing;
 mod const_final;
 mod dict_call;
@@ -6,6 +5,7 @@ mod docstring_line_length;
 mod docstring_start;
 mod docstring_style;
 mod local_imports;
+mod no_emoji;
 mod string_annotations;
 
 use crate::engine::rule::Rule;
@@ -22,6 +22,6 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(casing::CasingEnumKey),
         Box::new(casing::CasingEnumVal),
         Box::new(casing::CasingModuleConst),
-        Box::new(banned_emoji::BannedEmoji),
+        Box::new(no_emoji::NoEmoji),
     ]
 }
