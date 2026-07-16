@@ -300,6 +300,16 @@ level = "error"               # default: error
 level = "info"                # default: info — report only; warn/error enable re-flow
 ```
 
+When a rule needs nothing but a level, the bare shorthand keeps it to
+one line each:
+
+```toml
+[tool.sweep.rules]
+docstring-style = "warn"
+local-imports = "warn"
+string-annotations = "warn"
+```
+
 Values discovered automatically from `pyproject.toml`, so most projects
 need no `[tool.sweep]` section at all:
 

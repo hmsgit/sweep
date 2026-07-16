@@ -1,9 +1,13 @@
+# require_serial: sweep parallelizes over files internally (rayon);
+# without it pre-commit would split files into per-CPU batches, each
+# printing its own summary line.
 - id: sweep
   name: sweep check
   description: Warn on local imports, docstring-style mismatches and string type annotations.
   entry: sweep check
   language: rust
   types: [python]
+  require_serial: true
 
 - id: sweep-fix
   name: sweep check --fix
@@ -11,3 +15,4 @@
   entry: sweep check --fix
   language: rust
   types: [python]
+  require_serial: true

@@ -114,15 +114,71 @@ struct RawPython {
 #[serde(default, rename_all = "kebab-case")]
 struct RawRules {
     local_imports: RawLocalImports,
-    docstring_style: RawLevelOnly,
-    docstring_start: RawLevelOnly,
-    string_annotations: RawLevelOnly,
-    docstring_line_length: RawLevelOnly,
+    docstring_style: RawRuleEntry,
+    docstring_start: RawRuleEntry,
+    string_annotations: RawRuleEntry,
+    docstring_line_length: RawRuleEntry,
+}
+
+/// A rule entry accepts either the bare-level shorthand
+/// (`docstring-style = "warn"` under `[tool.sweep.rules]`) or the
+/// table form (`[tool.sweep.rules.docstring-style]` / inline table).
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawRuleEntry {
+    Level(Level),
+    Table(RawLevelOnly),
+}
+
+impl RawRuleEntry {
+    fn level(&self) -> Option<Level> {
+        match self {
+            RawRuleEntry::Level(level) => Some(*level),
+            RawRuleEntry::Table(t) => t.level,
+        }
+    }
+}
+
+impl Default for RawRuleEntry {
+    fn default() -> Self {
+        RawRuleEntry::Table(RawLevelOnly::default())
+    }
+}
+
+/// local-imports carries extra settings, so it accepts the bare level
+/// or a table with `level` and `known-first-party`.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawLocalImports {
+    Level(Level),
+    Table(RawLocalImportsTable),
+}
+
+impl RawLocalImports {
+    fn level(&self) -> Option<Level> {
+        match self {
+            RawLocalImports::Level(level) => Some(*level),
+            RawLocalImports::Table(t) => t.level,
+        }
+    }
+
+    fn known_first_party(self) -> Vec<String> {
+        match self {
+            RawLocalImports::Level(_) => Vec::new(),
+            RawLocalImports::Table(t) => t.known_first_party,
+        }
+    }
+}
+
+impl Default for RawLocalImports {
+    fn default() -> Self {
+        RawLocalImports::Table(RawLocalImportsTable::default())
+    }
 }
 
 #[derive(Debug, Deserialize, Default)]
 #[serde(default, rename_all = "kebab-case")]
-struct RawLocalImports {
+struct RawLocalImportsTable {
     level: Option<Level>,
     known_first_party: Vec<String>,
 }
@@ -253,28 +309,28 @@ impl Config {
             docstring_level: raw
                 .rules
                 .docstring_style
-                .level
+                .level()
                 .unwrap_or(defaults.docstring_level),
             docstring_start_level: raw
                 .rules
                 .docstring_start
-                .level
+                .level()
                 .unwrap_or(defaults.docstring_start_level),
             string_annotations_level: raw
                 .rules
                 .string_annotations
-                .level
+                .level()
                 .unwrap_or(defaults.string_annotations_level),
             local_imports_level: raw
                 .rules
                 .local_imports
-                .level
+                .level()
                 .unwrap_or(defaults.local_imports_level),
-            known_first_party: raw.rules.local_imports.known_first_party,
+            known_first_party: raw.rules.local_imports.known_first_party(),
             docstring_line_length_level: raw
                 .rules
                 .docstring_line_length
-                .level
+                .level()
                 .unwrap_or(defaults.docstring_line_length_level),
         };
 
@@ -368,6 +424,25 @@ mod tests {
         let c = Config::from_toml("", Path::new("pyproject.toml")).unwrap();
         assert_eq!(c.line_length, DEFAULT_LINE_LENGTH);
         assert_eq!(c.docstring_line_length_level, Level::Info);
+    }
+
+    #[test]
+    fn rule_levels_accept_bare_shorthand() {
+        let text = r#"
+[tool.sweep.rules]
+docstring-style = "warn"
+local-imports = "info"
+string-annotations = { level = "off" }
+
+[tool.sweep.rules.docstring-line-length]
+level = "warn"
+"#;
+        let c = Config::from_toml(text, Path::new("pyproject.toml")).unwrap();
+        assert_eq!(c.docstring_level, Level::Warn);
+        assert_eq!(c.local_imports_level, Level::Info);
+        assert_eq!(c.string_annotations_level, Level::Off);
+        assert_eq!(c.docstring_line_length_level, Level::Warn);
+        assert_eq!(c.docstring_start_level, Level::Error); // untouched default
     }
 
     #[test]
