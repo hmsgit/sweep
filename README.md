@@ -27,6 +27,17 @@ The hook builds with cargo on first install (`language: rust`) and is
 cached by pre-commit afterwards. A Rust toolchain is required once, on
 first install.
 
+`sweep-fix` is just `sweep` with `--fix` baked in; any CLI flag can
+also be passed through pre-commit's `args`, since pre-commit runs
+`entry + args + filenames`:
+
+```yaml
+      - id: sweep
+        args: [--fix]                      # same as sweep-fix
+      - id: sweep
+        args: [--select, local-imports]    # run a single rule
+```
+
 ### As a CLI
 
 ```console
