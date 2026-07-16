@@ -1,6 +1,6 @@
+mod annotate_module_const;
 mod casing;
-mod const_final;
-mod dict_call;
+mod dict_kwargs;
 mod docstring_line_length;
 mod docstring_start;
 mod docstring_style;
@@ -17,8 +17,8 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(docstring_style::DocstringStyle),
         Box::new(docstring_start::DocstringStart),
         Box::new(docstring_line_length::DocstringLineLength),
-        Box::new(dict_call::DictCall),
-        Box::new(const_final::ConstFinal),
+        Box::new(dict_kwargs::DictKwargs),
+        Box::new(annotate_module_const::AnnotateModuleConst),
         Box::new(casing::CasingEnumKey),
         Box::new(casing::CasingEnumVal),
         Box::new(casing::CasingModuleConst),

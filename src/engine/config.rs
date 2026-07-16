@@ -114,8 +114,8 @@ pub struct Config {
     pub local_imports_level: Level,
     pub known_first_party: Vec<String>,
     pub docstring_line_length_level: Level,
-    pub dict_call_level: Level,
-    pub const_final_level: Level,
+    pub dict_kwargs_level: Level,
+    pub annotate_module_const_level: Level,
     pub casing_enum_key: CasingConfig,
     pub casing_enum_val: CasingConfig,
     pub casing_module_const: CasingConfig,
@@ -136,8 +136,8 @@ impl Default for Config {
             known_first_party: Vec::new(),
             docstring_line_length_level: Level::Info,
             // House-style rules are opt-in.
-            dict_call_level: Level::Off,
-            const_final_level: Level::Off,
+            dict_kwargs_level: Level::Off,
+            annotate_module_const_level: Level::Off,
             casing_enum_key: CasingConfig::default(),
             casing_enum_val: CasingConfig::default(),
             casing_module_const: CasingConfig::default(),
@@ -172,8 +172,8 @@ struct RawRules {
     docstring_start: RawRuleEntry,
     string_annotations: RawRuleEntry,
     docstring_line_length: RawRuleEntry,
-    dict_call: RawRuleEntry,
-    const_final: RawRuleEntry,
+    dict_kwargs: RawRuleEntry,
+    annotate_module_const: RawRuleEntry,
     casing_enum_key: RawCasing,
     casing_enum_val: RawCasing,
     casing_module_const: RawCasing,
@@ -504,16 +504,16 @@ impl Config {
                 .docstring_line_length
                 .level()
                 .unwrap_or(defaults.docstring_line_length_level),
-            dict_call_level: raw
+            dict_kwargs_level: raw
                 .rules
-                .dict_call
+                .dict_kwargs
                 .level()
-                .unwrap_or(defaults.dict_call_level),
-            const_final_level: raw
+                .unwrap_or(defaults.dict_kwargs_level),
+            annotate_module_const_level: raw
                 .rules
-                .const_final
+                .annotate_module_const
                 .level()
-                .unwrap_or(defaults.const_final_level),
+                .unwrap_or(defaults.annotate_module_const_level),
             casing_enum_key: raw.rules.casing_enum_key.resolve(path)?,
             casing_enum_val: raw.rules.casing_enum_val.resolve(path)?,
             casing_module_const: raw.rules.casing_module_const.resolve(path)?,
@@ -635,20 +635,20 @@ level = "warn"
     #[test]
     fn house_style_rules_default_off_and_accept_shorthand() {
         let c = Config::from_toml("", Path::new("pyproject.toml")).unwrap();
-        assert_eq!(c.dict_call_level, Level::Off);
-        assert_eq!(c.const_final_level, Level::Off);
+        assert_eq!(c.dict_kwargs_level, Level::Off);
+        assert_eq!(c.annotate_module_const_level, Level::Off);
         assert_eq!(c.casing_enum_key.level, Level::Off);
         assert_eq!(c.no_emoji_level, Level::Off);
 
         let text = r#"
 [tool.sweep.rules]
-dict-call = "warn"
+dict-kwargs = "warn"
 casing-enum-key = "lower"
 casing-module-const = { level = "error", case = "upper" }
 no-emoji = "→✓"
 "#;
         let c = Config::from_toml(text, Path::new("pyproject.toml")).unwrap();
-        assert_eq!(c.dict_call_level, Level::Warn);
+        assert_eq!(c.dict_kwargs_level, Level::Warn);
         assert_eq!(c.casing_enum_key.level, Level::Warn);
         assert_eq!(c.casing_enum_key.case, Case::Lower);
         assert_eq!(c.casing_module_const.level, Level::Error);

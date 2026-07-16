@@ -10,11 +10,15 @@ use crate::langs::python::top_insertion_offset;
 /// annotation. The fix adds `: Final` (or wraps an existing annotation
 /// as `Final[T]`) and inserts `from typing import Final` if missing.
 /// Naming is casing-module-const's business; this pass only annotates.
-pub struct ConstFinal;
+///
+/// A name only counts as a constant when nothing contradicts it:
+/// assigned exactly once at module level and never declared `global`
+/// anywhere in the file — otherwise Final would be a lie.
+pub struct AnnotateModuleConst;
 
-impl Rule for ConstFinal {
+impl Rule for AnnotateModuleConst {
     fn name(&self) -> &'static str {
-        "const-final"
+        "annotate-module-const"
     }
 
     fn explain(&self) -> &'static str {
@@ -22,7 +26,7 @@ impl Rule for ConstFinal {
     }
 
     fn check(&self, ctx: &FileContext) -> Vec<Diagnostic> {
-        let level = ctx.config.const_final_level;
+        let level = ctx.config.annotate_module_const_level;
         let Some(severity) = level.severity() else {
             return Vec::new();
         };
@@ -33,6 +37,7 @@ impl Rule for ConstFinal {
             top_insertion_offset(root, ctx.source),
             "from typing import Final\n".to_string(),
         );
+        let rebound = rebound_names(root, ctx.source);
 
         let mut diagnostics = Vec::new();
         let mut cursor = root.walk();
@@ -53,7 +58,7 @@ impl Rule for ConstFinal {
                 continue;
             }
             let name = &ctx.source[left.byte_range()];
-            if !is_constant_name(name) {
+            if !is_constant_name(name) || rebound.contains(&name.to_string()) {
                 continue;
             }
             let annotation = assignment.child_by_field_name("type");
@@ -95,6 +100,56 @@ fn is_constant_name(name: &str) -> bool {
     !name.starts_with('_')
         && name.chars().any(|c| c.is_alphabetic())
         && !name.chars().any(|c| c.is_lowercase())
+}
+
+/// Names that are provably not constants: assigned more than once at
+/// module level (including augmented assignment) or declared `global`
+/// anywhere in the file.
+fn rebound_names(root: Node, source: &str) -> Vec<String> {
+    use std::collections::HashMap;
+
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    let mut cursor = root.walk();
+    for stmt in root.children(&mut cursor) {
+        if stmt.kind() != "expression_statement" {
+            continue;
+        }
+        let Some(expr) = stmt.named_child(0) else {
+            continue;
+        };
+        if !matches!(expr.kind(), "assignment" | "augmented_assignment") {
+            continue;
+        }
+        let Some(left) = expr.child_by_field_name("left") else {
+            continue;
+        };
+        if left.kind() == "identifier" {
+            let weight = if expr.kind() == "augmented_assignment" {
+                2
+            } else {
+                1
+            };
+            *counts.entry(&source[left.byte_range()]).or_default() += weight;
+        }
+    }
+
+    let mut rebound: Vec<String> = counts
+        .into_iter()
+        .filter(|(_, n)| *n > 1)
+        .map(|(name, _)| name.to_string())
+        .collect();
+
+    crate::engine::context::walk_tree(root, &mut |node| {
+        if node.kind() == "global_statement" {
+            let mut cursor = node.walk();
+            for child in node.named_children(&mut cursor) {
+                if child.kind() == "identifier" {
+                    rebound.push(source[child.byte_range()].to_string());
+                }
+            }
+        }
+    });
+    rebound
 }
 
 fn has_final_import(root: Node, source: &str) -> bool {

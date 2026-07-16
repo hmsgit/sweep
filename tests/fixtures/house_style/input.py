@@ -4,6 +4,8 @@ from enum import Enum
 
 TIMEOUT = 5
 RETRIES: int = 3  # tuned ✓
+TOGGLE = False
+TOGGLE = True
 
 
 class Color(Enum):

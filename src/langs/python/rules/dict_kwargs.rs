@@ -9,7 +9,7 @@ use crate::engine::rule::Rule;
 /// string literal that is a valid Python identifier (and not a hard
 /// keyword). Dicts with computed, non-identifier or duplicate keys are
 /// left alone — they can't be expressed as keyword arguments.
-pub struct DictCall;
+pub struct DictKwargs;
 
 const KEYWORDS: &[&str] = &[
     "False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue",
@@ -18,9 +18,9 @@ const KEYWORDS: &[&str] = &[
     "with", "yield",
 ];
 
-impl Rule for DictCall {
+impl Rule for DictKwargs {
     fn name(&self) -> &'static str {
-        "dict-call"
+        "dict-kwargs"
     }
 
     fn explain(&self) -> &'static str {
@@ -28,7 +28,7 @@ impl Rule for DictCall {
     }
 
     fn check(&self, ctx: &FileContext) -> Vec<Diagnostic> {
-        let level = ctx.config.dict_call_level;
+        let level = ctx.config.dict_kwargs_level;
         let Some(severity) = level.severity() else {
             return Vec::new();
         };

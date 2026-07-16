@@ -1,6 +1,6 @@
 [rules]
-dict-call = "warn"
-const-final = "warn"
+dict-kwargs = "warn"
+annotate-module-const = "warn"
 casing-enum-key = "lower"
 casing-enum-val = "lower"
 casing-module-const = "lower"

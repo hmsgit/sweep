@@ -80,8 +80,8 @@ See [Extending](#extending) for how to add a rule or a language.
 
 | rule | detects | `--fix` |
 | --- | --- | --- |
-| `dict-call` | `{"key": val}` literals where every key is an identifier string | rewrites to `dict(key=val)` |
-| `const-final` | UPPER_CASE module constants without a `Final` annotation | adds `: Final` / wraps as `Final[T]`, inserts the typing import |
+| `dict-kwargs` | `{"key": val}` literals where every key is an identifier string | rewrites to `dict(key=val)` |
+| `annotate-module-const` | UPPER_CASE module constants without a `Final` annotation | adds `: Final` / wraps as `Final[T]`, inserts the typing import |
 | `casing-enum-key` | enum member names not in the configured case | warn-only (cross-file rename) |
 | `casing-enum-val` | enum string values not in the configured case | warn-only (changes serialized data) |
 | `casing-module-const` | module constant names not in the configured case | warn-only (cross-file rename) |
@@ -237,8 +237,8 @@ conventions and stay `off` until a project opts in:
 
 ```toml
 [tool.sweep.rules]
-dict-call = "warn"
-const-final = "warn"
+dict-kwargs = "warn"
+annotate-module-const = "warn"
 casing-enum-key = "lower"        # lower | upper (shorthand enables at warn)
 casing-enum-val = "lower"
 casing-module-const = "lower"
@@ -248,11 +248,11 @@ no-emoji = "warn"                # flag every emoji/icon…
 
 Notes:
 
-- `dict-call` skips dicts it can't express faithfully: non-string or
+- `dict-kwargs` skips dicts it can't express faithfully: non-string or
   non-identifier keys, Python keywords, duplicate keys, or comments
   inside the literal. Splats pass through (`{**a, "b": 1}` →
   `dict(**a, b=1)`).
-- `const-final` only annotates; whether the *name* should be
+- `annotate-module-const` only annotates; whether the *name* should be
   `UPPER_CASE` or `lower_case` is `casing-module-const`'s business —
   the two are independent knobs.
 - The casing rules never autofix: renaming an identifier safely needs
