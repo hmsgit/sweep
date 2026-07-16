@@ -47,8 +47,9 @@ $ sweep check src/ --fix      # apply fixes in place
 $ sweep rules                 # list rules
 ```
 
-Most repos need no configuration: defaults are reST docstrings, warn
-levels, and line length from ruff's config when present.
+Most repos need no configuration: defaults are reST docstrings, error
+levels for the three main rules (info for line length), and line length
+from ruff's config when present.
 
 ### Developing
 
@@ -69,7 +70,7 @@ See [Extending](#extending) for how to add a rule or a language.
 | [`local-imports`](#local-imports) | `import` / `from … import` inside functions | hoists to the module import block, section-sorted |
 | [`docstring-style`](#docstring-style) | docstrings following a different convention than configured; wrong inline markup | converts to the configured convention; fixes markup |
 | [`string-annotations`](#string-annotations) | quoted type annotations like `x: "Foo"` | unquotes; inserts `from __future__ import annotations` |
-| [`docstring-line-length`](#docstring-line-length) | docstring lines exceeding the line length | off by default; `fix = "rewrap"` re-flows prose |
+| [`docstring-line-length`](#docstring-line-length) | docstring lines exceeding the line length | `info` by default (report only); at `warn`/`error` re-flows prose |
 
 ### local-imports
 
@@ -82,8 +83,9 @@ def build():
     from app.models import Model  # sweep: avoid-cycle models imports builders
 ```
 
-Everything unjustified is flagged. Under `--fix` (with `fix = "hoist"`,
-the default) the import is moved into the module's top import region:
+Everything unjustified is flagged. Under `--fix` (at the default
+`error` level, or `warn`) the import is moved into the module's top
+import region:
 
 - **Sections** follow the common isort layout: `__future__`, standard
   library, third-party, first-party, relative. Section membership comes
@@ -176,22 +178,44 @@ Reports every docstring line (quotes and indentation included) that
 exceeds the configured line length. Code lines are ruff's business
 (`E501`); this rule only measures docstrings.
 
-By default it only informs. Opt into rewriting with:
+The default level is `info`: report only, never rewritten, never fails
+the run. Opt into rewriting by raising the level:
 
 ```toml
 [tool.sweep.rules.docstring-line-length]
-fix = "rewrap"
+level = "warn"   # or "error"
 ```
 
 Then `--fix` re-flows docstring **prose** — greedy word wrap, paragraph
 boundaries preserved, budgeting the base indentation and the opening
-quotes on the first line. With rewrap on, `docstring-style` conversions
-wrap their output too, so a Google→reST conversion lands within the
-limit in one pass.
+quotes on the first line. With re-flow enabled, `docstring-style`
+conversions wrap their output too, so a Google→reST conversion lands
+within the limit in one pass.
 
 Never re-flowed: bullet lists, numbered lists, doctest lines, reST
 directives, and `::` literal-block introducers. A line that cannot be
 shortened (one long word, a URL) keeps its warning and is left alone.
+
+## Severity levels
+
+Every rule has one knob, `level`, and it decides everything:
+
+| level | shown | `--fix` rewrites | fails the run |
+| --- | --- | --- | --- |
+| `off` | no | no | no |
+| `info` | yes | **no** — purely informational | no |
+| `warn` | yes | yes | only with `--strict` |
+| `error` | yes | yes | **yes** |
+
+Defaults: `local-imports`, `docstring-style` and `string-annotations`
+are `error`; `docstring-line-length` is `info`. Relax rules to `warn`
+(fixed but not gating) or `info` (notify only) per project.
+
+One pre-commit interaction to know: pre-commit hides the output of
+**passing** hooks. Findings at `info`/`warn` level are invisible in the
+check-only `sweep` hook unless you set `verbose: true` on it — or use
+the `sweep-fix` hook, where applied fixes fail the hook and show up as
+a diff anyway.
 
 ## Suppressing findings
 
@@ -238,19 +262,17 @@ line-length = 79              # falls back to [tool.ruff].line-length, then 79
 docstring-style = "rest"      # rest (default) | google | numpy
 
 [tool.sweep.rules.local-imports]
-level = "warn"                # warn (default) | error | off
-fix = "hoist"                 # "hoist" (default) | "off" — whether --fix moves imports
+level = "error"               # off | info | warn | error (default: error)
 known-first-party = ["mypkg"]
 
 [tool.sweep.rules.docstring-style]
-level = "warn"
+level = "error"               # default: error
 
 [tool.sweep.rules.string-annotations]
-level = "warn"
+level = "error"               # default: error
 
 [tool.sweep.rules.docstring-line-length]
-level = "warn"                # report only, by default
-fix = "off"                   # "off" (default) | "rewrap" — whether --fix re-flows prose
+level = "info"                # default: info — report only; warn/error enable re-flow
 ```
 
 Values discovered automatically from `pyproject.toml`, so most projects
@@ -260,13 +282,12 @@ need no `[tool.sweep]` section at all:
   `[tool.ruff.lint.isort].known-first-party`, `[tool.isort].known_first_party`;
 - **line length**: `[tool.ruff].line-length`.
 
-`level = "error"` only changes how findings are labeled; any findings
-fail the run either way (see exit codes). `off` disables the rule.
+See [Severity levels](#severity-levels) for what each level does.
 
 ## CLI reference
 
 ```
-sweep check [PATHS]... [--fix] [--select RULES] [--ignore RULES] [--config PATH]
+sweep check [PATHS]... [--fix] [--strict] [--select RULES] [--ignore RULES] [--config PATH]
 sweep rules
 ```
 
@@ -277,12 +298,14 @@ sweep rules
 - `--fix` — apply available fixes in place. Fixes within one run are
   applied together when they don't conflict; conflicting ones are picked
   up on a re-check, up to a bounded number of rounds.
+- `--strict` — treat warnings as errors for the exit code (gate CI
+  without touching config).
 - `--select` / `--ignore` — comma-separated rule names to run / skip.
 - Findings print as `path:line:col: severity [rule] message`, with
   `[fixable]` appended when a fix is available.
 
-Exit codes: `0` clean, `1` findings remain (fixable or not), `2`
-usage or internal error.
+Exit codes: `0` clean or only info/warn findings, `1` error findings
+remain (warnings too under `--strict`), `2` usage or internal error.
 
 Files are processed in parallel (rayon); a few hundred files check in
 well under a second.

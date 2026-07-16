@@ -10,6 +10,7 @@ use clap::{Parser, Subcommand};
 use rayon::prelude::*;
 
 use engine::config::ConfigResolver;
+use engine::diagnostic::Severity;
 use engine::rule::Rule;
 use engine::runner::{FileReport, check_file};
 
@@ -32,6 +33,9 @@ enum Command {
         /// Apply available fixes in place.
         #[arg(long)]
         fix: bool,
+        /// Treat warnings as errors for the exit code.
+        #[arg(long)]
+        strict: bool,
         /// Comma-separated rule names to run (default: all).
         #[arg(long, value_delimiter = ',')]
         select: Vec<String>,
@@ -68,16 +72,18 @@ fn run() -> Result<ExitCode> {
         Command::Check {
             paths,
             fix,
+            strict,
             select,
             ignore,
             config,
-        } => check_command(&paths, fix, &select, &ignore, config.as_deref()),
+        } => check_command(&paths, fix, strict, &select, &ignore, config.as_deref()),
     }
 }
 
 fn check_command(
     paths: &[PathBuf],
     fix: bool,
+    strict: bool,
     select: &[String],
     ignore: &[String],
     config_path: Option<&Path>,
@@ -121,13 +127,17 @@ fn check_command(
         .collect::<Result<Vec<_>>>()?;
     reports.sort_by(|a, b| a.path.cmp(&b.path));
 
-    let mut remaining = 0usize;
+    let mut counts: [usize; 3] = [0, 0, 0]; // info, warning, error
     let mut fixed = 0usize;
     let mut fixable = 0usize;
     for report in &reports {
         fixed += report.fixes_applied;
         for d in &report.diagnostics {
-            remaining += 1;
+            counts[match d.severity {
+                Severity::Info => 0,
+                Severity::Warning => 1,
+                Severity::Error => 2,
+            }] += 1;
             if d.fixable {
                 fixable += 1;
             }
@@ -144,6 +154,8 @@ fn check_command(
         }
     }
 
+    let [infos, warnings, errors] = counts;
+    let remaining = infos + warnings + errors;
     match (remaining, fixed) {
         (0, 0) => println!("All clean ({} files).", reports.len()),
         (0, _) => println!(
@@ -151,18 +163,30 @@ fn check_command(
             reports.len()
         ),
         _ => {
-            let mut summary = format!("{remaining} issue(s) found");
+            let breakdown: Vec<String> = [
+                (errors, "error(s)"),
+                (warnings, "warning(s)"),
+                (infos, "info"),
+            ]
+            .iter()
+            .filter(|(n, _)| *n > 0)
+            .map(|(n, label)| format!("{n} {label}"))
+            .collect();
+            let mut summary = format!("{remaining} issue(s) found ({})", breakdown.join(", "));
             if fixed > 0 {
                 summary.push_str(&format!(", {fixed} fixed"));
             }
             if !fix && fixable > 0 {
-                summary.push_str(&format!(" ({fixable} fixable with --fix)"));
+                summary.push_str(&format!("; {fixable} fixable with --fix"));
             }
             println!("{summary}.");
         }
     }
 
-    Ok(if remaining > 0 {
+    // Only errors gate the run; --strict promotes warnings. info never
+    // fails: it exists to notify, not to block.
+    let failing = errors + if strict { warnings } else { 0 };
+    Ok(if failing > 0 {
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS

@@ -2,8 +2,9 @@ use std::fmt;
 
 use crate::engine::fix::Fix;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Severity {
+    Info,
     Warning,
     Error,
 }
@@ -11,6 +12,7 @@ pub enum Severity {
 impl fmt::Display for Severity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Severity::Info => write!(f, "info"),
             Severity::Warning => write!(f, "warning"),
             Severity::Error => write!(f, "error"),
         }

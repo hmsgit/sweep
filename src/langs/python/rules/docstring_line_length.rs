@@ -1,6 +1,5 @@
-use crate::engine::config::Level;
 use crate::engine::context::FileContext;
-use crate::engine::diagnostic::{Diagnostic, Severity};
+use crate::engine::diagnostic::Diagnostic;
 use crate::engine::rule::Rule;
 use crate::langs::python::docstring::{
     base_indent, content_range, detect, docstrings, rewrap, splice_fix,
@@ -9,9 +8,9 @@ use crate::langs::python::line_start;
 
 /// Reports docstring lines that exceed the configured line length
 /// (default 79, or ruff's line-length when set). By default this only
-/// informs; with `fix = "rewrap"` --fix re-flows the docstring's prose
-/// to fit. Non-prose content (bullets, doctests, directives) is never
-/// re-flowed.
+/// informs (level = info); at warn/error --fix re-flows the docstring's
+/// prose to fit. Non-prose content (bullets, doctests, directives) is
+/// never re-flowed.
 pub struct DocstringLineLength;
 
 impl Rule for DocstringLineLength {
@@ -20,24 +19,20 @@ impl Rule for DocstringLineLength {
     }
 
     fn explain(&self) -> &'static str {
-        "docstring lines must fit the configured line-length (fix = \"rewrap\" enables re-flow)"
+        "docstring lines must fit the configured line-length (level >= warn enables re-flow)"
     }
 
     fn check(&self, ctx: &FileContext) -> Vec<Diagnostic> {
-        let config = &ctx.config.docstring_line_length;
-        if config.level == Level::Off {
+        let level = ctx.config.docstring_line_length_level;
+        let Some(severity) = level.severity() else {
             return Vec::new();
-        }
-        let severity = match config.level {
-            Level::Error => Severity::Error,
-            _ => Severity::Warning,
         };
         let limit = ctx.config.line_length;
 
         let mut diagnostics = Vec::new();
         for string in docstrings(ctx.root()) {
             let mut fix = None;
-            if config.rewrap {
+            if level.applies_fixes() {
                 fix = rewrap_fix(ctx, string, limit);
             }
 

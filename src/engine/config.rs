@@ -25,46 +25,40 @@ impl fmt::Display for DocStyle {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+/// The single per-rule knob. Severity decides everything: whether the
+/// finding is shown, whether --fix rewrites it, and whether it fails
+/// the run.
+///
+/// | level | shown | --fix rewrites | fails the run |
+/// |-------|-------|----------------|---------------|
+/// | off   | no    | no             | no            |
+/// | info  | yes   | no             | no            |
+/// | warn  | yes   | yes            | only with --strict |
+/// | error | yes   | yes            | yes           |
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Level {
-    #[default]
+    Off,
+    Info,
     Warn,
     Error,
-    Off,
 }
 
-#[derive(Debug, Clone)]
-pub struct LocalImportsConfig {
-    pub level: Level,
-    /// Whether --fix hoists local imports to the module import block.
-    pub hoist: bool,
-    pub known_first_party: Vec<String>,
-}
-
-impl Default for LocalImportsConfig {
-    fn default() -> Self {
-        Self {
-            level: Level::Warn,
-            hoist: true,
-            known_first_party: Vec::new(),
+impl Level {
+    pub fn severity(self) -> Option<crate::engine::diagnostic::Severity> {
+        use crate::engine::diagnostic::Severity;
+        match self {
+            Level::Off => None,
+            Level::Info => Some(Severity::Info),
+            Level::Warn => Some(Severity::Warning),
+            Level::Error => Some(Severity::Error),
         }
     }
-}
 
-#[derive(Debug, Clone)]
-pub struct DocstringLineLengthConfig {
-    pub level: Level,
-    /// Whether --fix re-wraps docstring prose to fit the line length.
-    pub rewrap: bool,
-}
-
-impl Default for DocstringLineLengthConfig {
-    fn default() -> Self {
-        Self {
-            level: Level::Warn,
-            rewrap: false,
-        }
+    /// info-level findings are purely informational; only warn and
+    /// error get rewritten under --fix.
+    pub fn applies_fixes(self) -> bool {
+        matches!(self, Level::Warn | Level::Error)
     }
 }
 
@@ -77,8 +71,9 @@ pub struct Config {
     pub docstring_style: DocStyle,
     pub docstring_level: Level,
     pub string_annotations_level: Level,
-    pub local_imports: LocalImportsConfig,
-    pub docstring_line_length: DocstringLineLengthConfig,
+    pub local_imports_level: Level,
+    pub known_first_party: Vec<String>,
+    pub docstring_line_length_level: Level,
 }
 
 impl Default for Config {
@@ -87,10 +82,11 @@ impl Default for Config {
             exclude: Vec::new(),
             line_length: DEFAULT_LINE_LENGTH,
             docstring_style: DocStyle::default(),
-            docstring_level: Level::default(),
-            string_annotations_level: Level::default(),
-            local_imports: LocalImportsConfig::default(),
-            docstring_line_length: DocstringLineLengthConfig::default(),
+            docstring_level: Level::Error,
+            string_annotations_level: Level::Error,
+            local_imports_level: Level::Error,
+            known_first_party: Vec::new(),
+            docstring_line_length_level: Level::Info,
         }
     }
 }
@@ -118,21 +114,13 @@ struct RawRules {
     local_imports: RawLocalImports,
     docstring_style: RawLevelOnly,
     string_annotations: RawLevelOnly,
-    docstring_line_length: RawDocstringLineLength,
-}
-
-#[derive(Debug, Deserialize, Default)]
-#[serde(default, rename_all = "kebab-case")]
-struct RawDocstringLineLength {
-    level: Option<Level>,
-    fix: Option<toml::Value>,
+    docstring_line_length: RawLevelOnly,
 }
 
 #[derive(Debug, Deserialize, Default)]
 #[serde(default, rename_all = "kebab-case")]
 struct RawLocalImports {
     level: Option<Level>,
-    fix: Option<toml::Value>,
     known_first_party: Vec<String>,
 }
 
@@ -251,6 +239,7 @@ impl Config {
             .and_then(|v| v.as_integer())
             .and_then(|n| usize::try_from(n).ok());
 
+        let defaults = Config::default();
         let mut config = Config {
             exclude: raw.exclude,
             line_length: raw
@@ -258,27 +247,27 @@ impl Config {
                 .or(ruff_line_length)
                 .unwrap_or(DEFAULT_LINE_LENGTH),
             docstring_style: raw.python.docstring_style.unwrap_or_default(),
-            docstring_level: raw.rules.docstring_style.level.unwrap_or_default(),
-            string_annotations_level: raw.rules.string_annotations.level.unwrap_or_default(),
-            local_imports: LocalImportsConfig {
-                level: raw.rules.local_imports.level.unwrap_or_default(),
-                hoist: match &raw.rules.local_imports.fix {
-                    None => true,
-                    Some(toml::Value::Boolean(b)) => *b,
-                    Some(toml::Value::String(s)) => s == "hoist",
-                    Some(_) => true,
-                },
-                known_first_party: raw.rules.local_imports.known_first_party,
-            },
-            docstring_line_length: DocstringLineLengthConfig {
-                level: raw.rules.docstring_line_length.level.unwrap_or_default(),
-                rewrap: match &raw.rules.docstring_line_length.fix {
-                    None => false,
-                    Some(toml::Value::Boolean(b)) => *b,
-                    Some(toml::Value::String(s)) => s == "rewrap",
-                    Some(_) => false,
-                },
-            },
+            docstring_level: raw
+                .rules
+                .docstring_style
+                .level
+                .unwrap_or(defaults.docstring_level),
+            string_annotations_level: raw
+                .rules
+                .string_annotations
+                .level
+                .unwrap_or(defaults.string_annotations_level),
+            local_imports_level: raw
+                .rules
+                .local_imports
+                .level
+                .unwrap_or(defaults.local_imports_level),
+            known_first_party: raw.rules.local_imports.known_first_party,
+            docstring_line_length_level: raw
+                .rules
+                .docstring_line_length
+                .level
+                .unwrap_or(defaults.docstring_line_length_level),
         };
 
         if is_pyproject {
@@ -293,8 +282,8 @@ impl Config {
     fn absorb_first_party_hints(&mut self, doc: &toml::Value) {
         let mut add = |name: &str| {
             let normalized = name.replace('-', "_");
-            if !self.local_imports.known_first_party.contains(&normalized) {
-                self.local_imports.known_first_party.push(normalized);
+            if !self.known_first_party.contains(&normalized) {
+                self.known_first_party.push(normalized);
             }
         };
 
@@ -349,7 +338,13 @@ mod tests {
     fn defaults() {
         let c = Config::default();
         assert_eq!(c.docstring_style, DocStyle::Rest);
-        assert!(c.local_imports.hoist);
+        assert_eq!(c.local_imports_level, Level::Error);
+        assert_eq!(c.docstring_level, Level::Error);
+        assert_eq!(c.string_annotations_level, Level::Error);
+        assert_eq!(c.docstring_line_length_level, Level::Info);
+        assert!(!Level::Info.applies_fixes());
+        assert!(Level::Warn.applies_fixes());
+        assert!(Level::Error.applies_fixes());
     }
 
     #[test]
@@ -364,8 +359,7 @@ mod tests {
 
         let c = Config::from_toml("", Path::new("pyproject.toml")).unwrap();
         assert_eq!(c.line_length, DEFAULT_LINE_LENGTH);
-        assert!(!c.docstring_line_length.rewrap);
-        assert_eq!(c.docstring_line_length.level, Level::Warn);
+        assert_eq!(c.docstring_line_length_level, Level::Info);
     }
 
     #[test]
@@ -381,22 +375,16 @@ known-first-party = ["internal_lib"]
 docstring-style = "google"
 
 [tool.sweep.rules.local-imports]
-level = "error"
-fix = "off"
+level = "info"
+
+[tool.sweep.rules.docstring-line-length]
+level = "warn"
 "#;
         let c = Config::from_toml(text, Path::new("pyproject.toml")).unwrap();
         assert_eq!(c.docstring_style, DocStyle::Google);
-        assert_eq!(c.local_imports.level, Level::Error);
-        assert!(!c.local_imports.hoist);
-        assert!(
-            c.local_imports
-                .known_first_party
-                .contains(&"my_pkg".to_string())
-        );
-        assert!(
-            c.local_imports
-                .known_first_party
-                .contains(&"internal_lib".to_string())
-        );
+        assert_eq!(c.local_imports_level, Level::Info);
+        assert_eq!(c.docstring_line_length_level, Level::Warn);
+        assert!(c.known_first_party.contains(&"my_pkg".to_string()));
+        assert!(c.known_first_party.contains(&"internal_lib".to_string()));
     }
 }

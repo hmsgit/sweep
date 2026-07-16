@@ -1,8 +1,7 @@
 use tree_sitter::Node;
 
-use crate::engine::config::Level;
 use crate::engine::context::{FileContext, walk_tree};
-use crate::engine::diagnostic::{Diagnostic, Severity};
+use crate::engine::diagnostic::Diagnostic;
 use crate::engine::fix::{Edit, Fix};
 use crate::engine::rule::Rule;
 use crate::langs::python::{has_future_annotations, top_insertion_offset};
@@ -22,12 +21,9 @@ impl Rule for StringAnnotations {
     }
 
     fn check(&self, ctx: &FileContext) -> Vec<Diagnostic> {
-        if ctx.config.string_annotations_level == Level::Off {
+        let level = ctx.config.string_annotations_level;
+        let Some(severity) = level.severity() else {
             return Vec::new();
-        }
-        let severity = match ctx.config.string_annotations_level {
-            Level::Error => Severity::Error,
-            _ => Severity::Warning,
         };
 
         let root = ctx.root();
@@ -55,23 +51,25 @@ impl Rule for StringAnnotations {
                     return;
                 };
 
-                let mut edits = vec![Edit::replace(node.start_byte(), node.end_byte(), content)];
-                if needs_future_import {
-                    edits.insert(0, future_edit.clone());
+                let mut diagnostic = Diagnostic::new(
+                    self.name(),
+                    format!(
+                        "string annotation {}; unquote it and rely on `from __future__ import annotations`",
+                        ctx.text(node),
+                    ),
+                    node.start_byte(),
+                    node.end_byte(),
+                )
+                .with_severity(severity);
+                if level.applies_fixes() {
+                    let mut edits =
+                        vec![Edit::replace(node.start_byte(), node.end_byte(), content)];
+                    if needs_future_import {
+                        edits.insert(0, future_edit.clone());
+                    }
+                    diagnostic = diagnostic.with_fix(Fix::new(edits));
                 }
-                diagnostics.push(
-                    Diagnostic::new(
-                        self.name(),
-                        format!(
-                            "string annotation {}; unquote it and rely on `from __future__ import annotations`",
-                            ctx.text(node),
-                        ),
-                        node.start_byte(),
-                        node.end_byte(),
-                    )
-                    .with_severity(severity)
-                    .with_fix(Fix::new(edits)),
-                );
+                diagnostics.push(diagnostic);
             });
         });
         diagnostics

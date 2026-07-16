@@ -1,8 +1,7 @@
 use tree_sitter::Node;
 
-use crate::engine::config::Level;
 use crate::engine::context::{FileContext, walk_tree};
-use crate::engine::diagnostic::{Diagnostic, Severity};
+use crate::engine::diagnostic::Diagnostic;
 use crate::engine::rule::Rule;
 use crate::langs::python::imports;
 
@@ -22,13 +21,9 @@ impl Rule for LocalImports {
     }
 
     fn check(&self, ctx: &FileContext) -> Vec<Diagnostic> {
-        let config = &ctx.config.local_imports;
-        if config.level == Level::Off {
+        let level = ctx.config.local_imports_level;
+        let Some(severity) = level.severity() else {
             return Vec::new();
-        }
-        let severity = match config.level {
-            Level::Error => Severity::Error,
-            _ => Severity::Warning,
         };
 
         let mut diagnostics = Vec::new();
@@ -54,7 +49,7 @@ impl Rule for LocalImports {
             )
             .with_severity(severity);
 
-            if config.hoist
+            if level.applies_fixes()
                 && placement == Placement::Hoistable
                 && let Some(fix) = imports::hoist_fix(node, ctx.source, ctx.config)
             {

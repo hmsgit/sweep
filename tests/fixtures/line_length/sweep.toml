@@ -4,4 +4,4 @@ line-length = 60
 docstring-style = "rest"
 
 [rules.docstring-line-length]
-fix = "rewrap"
+level = "warn"

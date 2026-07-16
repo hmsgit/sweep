@@ -28,12 +28,7 @@ pub fn classify(node_kind: &str, module: &str, config: &Config) -> Section {
     if root == "__future__" {
         return Section::Future;
     }
-    if config
-        .local_imports
-        .known_first_party
-        .iter()
-        .any(|p| p == root)
-    {
+    if config.known_first_party.iter().any(|p| p == root) {
         return Section::FirstParty;
     }
     if is_stdlib(root) {

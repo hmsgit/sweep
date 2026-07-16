@@ -180,9 +180,9 @@ fn config_is_resolved_per_file_for_monorepos() {
 }
 
 #[test]
-fn line_length_defaults_to_warn_only() {
-    // No config: limit 79, level warn, no rewrap — the long docstring
-    // line is reported but not fixable, and --fix leaves it alone.
+fn line_length_defaults_to_info_only() {
+    // No config: limit 79, level info — the long docstring line is
+    // reported as info, never fixed, and does not fail the run.
     let temp = tempfile::tempdir().unwrap();
     std::fs::write(temp.path().join("sweep.toml"), "").unwrap();
     let long_line = "x".repeat(90);
@@ -192,12 +192,45 @@ fn line_length_defaults_to_warn_only() {
     let output = run_sweep(temp.path(), &["check", ".", "--fix"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("[docstring-line-length]") && stdout.contains("(79 allowed)"),
+        stdout.contains("info [docstring-line-length]") && stdout.contains("(79 allowed)"),
         "stdout:\n{stdout}"
     );
     assert!(!stdout.contains("[fixable]"), "stdout:\n{stdout}");
+    assert_eq!(output.status.code(), Some(0), "info must not fail the run");
     let after = std::fs::read_to_string(temp.path().join("input.py")).unwrap();
-    assert_eq!(after, source, "default must not rewrite");
+    assert_eq!(after, source, "info level must not rewrite");
+}
+
+#[test]
+fn warns_pass_unless_strict() {
+    // A warn-level finding is reported and fixable, but only fails the
+    // exit code under --strict.
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::write(
+        temp.path().join("sweep.toml"),
+        "[rules.local-imports]\nlevel = \"warn\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        temp.path().join("input.py"),
+        "def f():\n    import os\n    return os.sep\n",
+    )
+    .unwrap();
+
+    let output = run_sweep(temp.path(), &["check", "."]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("warning [local-imports]"),
+        "stdout:\n{stdout}"
+    );
+    assert_eq!(output.status.code(), Some(0), "warn alone must pass");
+
+    let output = run_sweep(temp.path(), &["check", ".", "--strict"]);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "--strict must promote warnings to failures"
+    );
 }
 
 #[test]

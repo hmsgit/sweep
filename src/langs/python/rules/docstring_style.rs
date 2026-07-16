@@ -1,6 +1,5 @@
-use crate::engine::config::Level;
 use crate::engine::context::FileContext;
-use crate::engine::diagnostic::{Diagnostic, Severity};
+use crate::engine::diagnostic::Diagnostic;
 use crate::engine::fix::{Edit, Fix};
 use crate::engine::rule::Rule;
 use crate::langs::python::docstring::{
@@ -23,12 +22,9 @@ impl Rule for DocstringStyle {
     }
 
     fn check(&self, ctx: &FileContext) -> Vec<Diagnostic> {
-        if ctx.config.docstring_level == Level::Off {
+        let level = ctx.config.docstring_level;
+        let Some(severity) = level.severity() else {
             return Vec::new();
-        }
-        let severity = match ctx.config.docstring_level {
-            Level::Error => Severity::Error,
-            _ => Severity::Warning,
         };
         let configured = ctx.config.docstring_style;
 
@@ -49,17 +45,19 @@ impl Rule for DocstringStyle {
                     )
                     .with_severity(severity);
 
-                    // When rewrap is on, converted output is wrapped to the
-                    // line length right away; otherwise original wrapping
-                    // is preserved.
-                    let width = if ctx.config.docstring_line_length.rewrap {
+                    // When the line-length rule is allowed to rewrap,
+                    // converted output is wrapped to the line length right
+                    // away; otherwise original wrapping is preserved.
+                    let width = if ctx.config.docstring_line_length_level.applies_fixes() {
                         let indent_len = base_indent(string, ctx.source).map_or(0, str::len);
                         Some(ctx.config.line_length.saturating_sub(indent_len).max(24))
                     } else {
                         None
                     };
                     let quote_len = content_start - string.start_byte();
-                    if let Some(rendered) = convert(content, style, configured, width, quote_len)
+                    if level.applies_fixes()
+                        && let Some(rendered) =
+                            convert(content, style, configured, width, quote_len)
                         && let Some(fix) =
                             splice_fix(string, ctx.source, content_start, content, &rendered)
                     {
@@ -71,20 +69,21 @@ impl Rule for DocstringStyle {
                     // Convention matches (or no sections): still check
                     // that inline markup follows the convention.
                     for issue in markup_issues(content, configured) {
-                        diagnostics.push(
-                            Diagnostic::new(
-                                self.name(),
-                                issue.message,
-                                content_start + issue.start,
-                                content_start + issue.end,
-                            )
-                            .with_severity(severity)
-                            .with_fix(Fix::new(vec![Edit::replace(
+                        let mut diagnostic = Diagnostic::new(
+                            self.name(),
+                            issue.message,
+                            content_start + issue.start,
+                            content_start + issue.end,
+                        )
+                        .with_severity(severity);
+                        if level.applies_fixes() {
+                            diagnostic = diagnostic.with_fix(Fix::new(vec![Edit::replace(
                                 content_start + issue.start,
                                 content_start + issue.end,
                                 issue.replacement,
-                            )])),
-                        );
+                            )]));
+                        }
+                        diagnostics.push(diagnostic);
                     }
                 }
             }
