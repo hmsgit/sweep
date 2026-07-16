@@ -32,6 +32,15 @@ pub struct RenderedDiagnostic {
     pub col: usize,
     pub severity: crate::engine::diagnostic::Severity,
     pub fixable: bool,
+    pub snippet: Snippet,
+}
+
+/// The source line a diagnostic points at, for ruff-style output.
+/// Offsets are in characters, relative to the line.
+pub struct Snippet {
+    pub text: String,
+    pub underline_start: usize,
+    pub underline_len: usize,
 }
 
 pub fn check_file(
@@ -70,7 +79,10 @@ pub fn check_file(
         if !fix || !has_fixes {
             return Ok(FileReport {
                 path: path.to_path_buf(),
-                diagnostics: diagnostics.iter().map(|d| render(d, &line_index)).collect(),
+                diagnostics: diagnostics
+                    .iter()
+                    .map(|d| render(d, &current, &line_index))
+                    .collect(),
                 fixes_applied,
                 fixed_source: (fixes_applied > 0).then_some(current),
             });
@@ -83,7 +95,10 @@ pub fn check_file(
         if applied == 0 || next == current {
             return Ok(FileReport {
                 path: path.to_path_buf(),
-                diagnostics: diagnostics.iter().map(|d| render(d, &line_index)).collect(),
+                diagnostics: diagnostics
+                    .iter()
+                    .map(|d| render(d, &current, &line_index))
+                    .collect(),
                 fixes_applied,
                 fixed_source: (fixes_applied > 0).then_some(current),
             });
@@ -98,8 +113,18 @@ pub fn check_file(
     ))
 }
 
-fn render(d: &Diagnostic, line_index: &LineIndex) -> RenderedDiagnostic {
+fn render(d: &Diagnostic, source: &str, line_index: &LineIndex) -> RenderedDiagnostic {
     let (line, col) = line_index.line_col(d.start);
+
+    let line_start = d.start - (col - 1);
+    let line_end = source[line_start..]
+        .find('\n')
+        .map(|i| line_start + i)
+        .unwrap_or(source.len());
+    let end = d.end.clamp(d.start, line_end);
+    let underline_start = source[line_start..d.start.min(line_end)].chars().count();
+    let underline_len = source[d.start.min(line_end)..end].chars().count().max(1);
+
     RenderedDiagnostic {
         rule: d.rule,
         message: d.message.clone(),
@@ -107,5 +132,10 @@ fn render(d: &Diagnostic, line_index: &LineIndex) -> RenderedDiagnostic {
         col,
         severity: d.severity,
         fixable: d.fix.is_some(),
+        snippet: Snippet {
+            text: source[line_start..line_end].to_string(),
+            underline_start,
+            underline_len,
+        },
     }
 }

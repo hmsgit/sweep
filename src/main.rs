@@ -1,5 +1,6 @@
 mod engine;
 mod langs;
+mod output;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -13,6 +14,7 @@ use engine::config::ConfigResolver;
 use engine::diagnostic::Severity;
 use engine::rule::Rule;
 use engine::runner::{FileReport, check_file};
+use output::{Formatter, TermMode};
 
 /// Fast, multi-language cleanup passes for pre-commit.
 #[derive(Parser)]
@@ -36,6 +38,9 @@ enum Command {
         /// Treat warnings as errors for the exit code.
         #[arg(long)]
         strict: bool,
+        /// Terminal output: auto-detect colors/hyperlinks, or force them.
+        #[arg(long, value_enum, default_value_t = TermMode::Auto)]
+        term: TermMode,
         /// Comma-separated rule names to run (default: all).
         #[arg(long, value_delimiter = ',')]
         select: Vec<String>,
@@ -73,10 +78,19 @@ fn run() -> Result<ExitCode> {
             paths,
             fix,
             strict,
+            term,
             select,
             ignore,
             config,
-        } => check_command(&paths, fix, strict, &select, &ignore, config.as_deref()),
+        } => check_command(
+            &paths,
+            fix,
+            strict,
+            term,
+            &select,
+            &ignore,
+            config.as_deref(),
+        ),
     }
 }
 
@@ -84,6 +98,7 @@ fn check_command(
     paths: &[PathBuf],
     fix: bool,
     strict: bool,
+    term: TermMode,
     select: &[String],
     ignore: &[String],
     config_path: Option<&Path>,
@@ -127,6 +142,7 @@ fn check_command(
         .collect::<Result<Vec<_>>>()?;
     reports.sort_by(|a, b| a.path.cmp(&b.path));
 
+    let formatter = Formatter::new(term);
     let mut counts: [usize; 3] = [0, 0, 0]; // info, warning, error
     let mut fixed = 0usize;
     let mut fixable = 0usize;
@@ -141,50 +157,15 @@ fn check_command(
             if d.fixable {
                 fixable += 1;
             }
-            println!(
-                "{}:{}:{}: {} [{}] {}{}",
-                report.path.display(),
-                d.line,
-                d.col,
-                d.severity,
-                d.rule,
-                d.message,
-                if d.fixable { " [fixable]" } else { "" },
-            );
+            formatter.print_diagnostic(&report.path, d);
         }
     }
 
-    let [infos, warnings, errors] = counts;
-    let remaining = infos + warnings + errors;
-    match (remaining, fixed) {
-        (0, 0) => println!("All clean ({} files).", reports.len()),
-        (0, _) => println!(
-            "Fixed {fixed} issue(s); all clean ({} files).",
-            reports.len()
-        ),
-        _ => {
-            let breakdown: Vec<String> = [
-                (errors, "error(s)"),
-                (warnings, "warning(s)"),
-                (infos, "info"),
-            ]
-            .iter()
-            .filter(|(n, _)| *n > 0)
-            .map(|(n, label)| format!("{n} {label}"))
-            .collect();
-            let mut summary = format!("{remaining} issue(s) found ({})", breakdown.join(", "));
-            if fixed > 0 {
-                summary.push_str(&format!(", {fixed} fixed"));
-            }
-            if !fix && fixable > 0 {
-                summary.push_str(&format!("; {fixable} fixable with --fix"));
-            }
-            println!("{summary}.");
-        }
-    }
+    formatter.print_summary(reports.len(), counts, fixed, fixable, fix);
 
     // Only errors gate the run; --strict promotes warnings. info never
     // fails: it exists to notify, not to block.
+    let [_, warnings, errors] = counts;
     let failing = errors + if strict { warnings } else { 0 };
     Ok(if failing > 0 {
         ExitCode::FAILURE

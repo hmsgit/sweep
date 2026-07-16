@@ -301,8 +301,25 @@ sweep rules
 - `--strict` — treat warnings as errors for the exit code (gate CI
   without touching config).
 - `--select` / `--ignore` — comma-separated rule names to run / skip.
-- Findings print as `path:line:col: severity [rule] message`, with
-  `[fixable]` appended when a fix is available.
+- `--term auto|plain|color|hyper` — terminal output control. `auto`
+  (default) colors when stdout is a TTY (`NO_COLOR` respected) and adds
+  OSC 8 hyperlinks on the `path:line:col` location when the terminal is
+  known to render them (iTerm2, WezTerm, kitty, VS Code, ghostty, VTE,
+  Konsole). `plain` strips everything; `color`/`hyper` force it on.
+
+Findings render ruff-style — location, severity, rule, message, the
+offending line with a caret underline, and `[*]` marking fixable:
+
+```
+app/models.py:21:5: error[local-imports] `import json` inside a function; hoist to module level or mark it `# sweep: avoid-cycle` [*]
+   |
+21 |     import json
+   |     ^^^^^^^^^^^
+   |
+
+Found 3 issue(s) (2 error(s), 1 info).
+[*] 2 fixable with the `--fix` option.
+```
 
 Exit codes: `0` clean or only info/warn findings, `1` error findings
 remain (warnings too under `--strict`), `2` usage or internal error.

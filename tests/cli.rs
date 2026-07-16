@@ -88,7 +88,7 @@ fn fixed_fixtures_pass_check() {
         let output = run_sweep(temp.path(), &["check", "."]);
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(
-            !stdout.contains("[fixable]"),
+            !stdout.contains("[*]"),
             "[{name}] expected.py still has fixable findings:\n{stdout}"
         );
     }
@@ -180,6 +180,35 @@ fn config_is_resolved_per_file_for_monorepos() {
 }
 
 #[test]
+fn term_modes_control_escape_sequences() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hoist");
+    let temp = tempfile::tempdir().unwrap();
+    setup(&fixture, temp.path());
+
+    // Piped output in auto mode carries no escape sequences.
+    let auto = run_sweep(temp.path(), &["check", "."]);
+    let stdout = String::from_utf8_lossy(&auto.stdout);
+    assert!(
+        !stdout.contains('\x1b'),
+        "auto+pipe must be plain:\n{stdout}"
+    );
+
+    // --term hyper forces colors and OSC 8 file hyperlinks.
+    let hyper = run_sweep(temp.path(), &["check", ".", "--term", "hyper"]);
+    let stdout = String::from_utf8_lossy(&hyper.stdout);
+    assert!(
+        stdout.contains("\x1b]8;;file://"),
+        "hyper must emit OSC 8 links:\n{stdout}"
+    );
+    assert!(stdout.contains("\x1b[31m"), "hyper must emit colors");
+
+    // --term plain strips everything even when forced elsewhere.
+    let plain = run_sweep(temp.path(), &["check", ".", "--term", "plain"]);
+    let stdout = String::from_utf8_lossy(&plain.stdout);
+    assert!(!stdout.contains('\x1b'), "plain must have no escapes");
+}
+
+#[test]
 fn line_length_defaults_to_info_only() {
     // No config: limit 79, level info — the long docstring line is
     // reported as info, never fixed, and does not fail the run.
@@ -192,10 +221,10 @@ fn line_length_defaults_to_info_only() {
     let output = run_sweep(temp.path(), &["check", ".", "--fix"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("info [docstring-line-length]") && stdout.contains("(79 allowed)"),
+        stdout.contains("info[docstring-line-length]") && stdout.contains("(79 allowed)"),
         "stdout:\n{stdout}"
     );
-    assert!(!stdout.contains("[fixable]"), "stdout:\n{stdout}");
+    assert!(!stdout.contains("[*]"), "stdout:\n{stdout}");
     assert_eq!(output.status.code(), Some(0), "info must not fail the run");
     let after = std::fs::read_to_string(temp.path().join("input.py")).unwrap();
     assert_eq!(after, source, "info level must not rewrite");
@@ -220,7 +249,7 @@ fn warns_pass_unless_strict() {
     let output = run_sweep(temp.path(), &["check", "."]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("warning [local-imports]"),
+        stdout.contains("warning[local-imports]"),
         "stdout:\n{stdout}"
     );
     assert_eq!(output.status.code(), Some(0), "warn alone must pass");
