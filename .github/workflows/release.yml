@@ -70,12 +70,17 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - uses: actions/download-artifact@v5
         with:
           path: dist
           merge-multiple: true
       - name: Create GitHub release
         run: |
+          python3 scripts/release_notes.py "$GITHUB_REF_NAME" > notes.md
           prerelease=""
           case "$GITHUB_REF_NAME" in
             *b*|*rc*) prerelease="--prerelease" ;;
@@ -83,7 +88,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME" dist/* \
             --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" \
-            --generate-notes \
+            --notes-file notes.md \
             --verify-tag \
             $prerelease
         env:
