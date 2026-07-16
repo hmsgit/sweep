@@ -63,3 +63,28 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist
+
+  github-release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create GitHub release
+        run: |
+          prerelease=""
+          case "$GITHUB_REF_NAME" in
+            *b*|*rc*) prerelease="--prerelease" ;;
+          esac
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            --verify-tag \
+            $prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
