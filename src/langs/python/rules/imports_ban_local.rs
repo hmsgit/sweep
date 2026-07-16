@@ -7,13 +7,13 @@ use crate::langs::python::imports;
 
 /// Flags imports written inside function bodies. Deliberate local imports
 /// (cycle avoidance, lazy heavy deps) should carry `# sweep: avoid-cycle`
-/// or `# sweep: ignore[local-imports] <reason>`; everything else gets
+/// or `# sweep: ignore[imports-ban-local] <reason>`; everything else gets
 /// hoisted to the module import block under --fix.
-pub struct LocalImports;
+pub struct ImportsBanLocal;
 
-impl Rule for LocalImports {
+impl Rule for ImportsBanLocal {
     fn name(&self) -> &'static str {
-        "local-imports"
+        "imports-ban-local"
     }
 
     fn explain(&self) -> &'static str {
@@ -21,7 +21,7 @@ impl Rule for LocalImports {
     }
 
     fn check(&self, ctx: &FileContext) -> Vec<Diagnostic> {
-        let level = ctx.config.local_imports_level;
+        let level = ctx.config.imports_ban_local_level;
         let Some(severity) = level.severity() else {
             return Vec::new();
         };

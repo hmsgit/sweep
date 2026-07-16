@@ -5,7 +5,7 @@ use crate::engine::diagnostic::Diagnostic;
 /// one thing and runs independently of every other rule.
 pub trait Rule: Send + Sync {
     /// Kebab-case identifier used in output, --select/--ignore, config
-    /// tables and suppression directives (e.g. "local-imports").
+    /// tables and suppression directives (e.g. "imports-ban-local").
     fn name(&self) -> &'static str;
 
     /// One-line description shown by `sweep rules`.

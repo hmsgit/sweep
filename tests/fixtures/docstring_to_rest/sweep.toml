@@ -1,5 +1,5 @@
 [python]
 docstring-style = "rest"
 
-[rules.local-imports]
+[rules.imports-ban-local]
 level = "off"

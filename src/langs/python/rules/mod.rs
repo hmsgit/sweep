@@ -4,7 +4,7 @@ mod dict_kwargs;
 mod docstring_line_length;
 mod docstring_start;
 mod docstring_style;
-mod local_imports;
+mod imports_ban_local;
 mod no_emoji;
 mod string_annotations;
 
@@ -12,7 +12,7 @@ use crate::engine::rule::Rule;
 
 pub fn all_rules() -> Vec<Box<dyn Rule>> {
     vec![
-        Box::new(local_imports::LocalImports),
+        Box::new(imports_ban_local::ImportsBanLocal),
         Box::new(string_annotations::StringAnnotations),
         Box::new(docstring_style::DocstringStyle),
         Box::new(docstring_start::DocstringStart),

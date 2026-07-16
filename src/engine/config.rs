@@ -111,7 +111,7 @@ pub struct Config {
     pub docstring_level: Level,
     pub docstring_start_level: Level,
     pub string_annotations_level: Level,
-    pub local_imports_level: Level,
+    pub imports_ban_local_level: Level,
     pub known_first_party: Vec<String>,
     pub docstring_line_length_level: Level,
     pub dict_kwargs_level: Level,
@@ -132,7 +132,7 @@ impl Default for Config {
             docstring_level: Level::Error,
             docstring_start_level: Level::Error,
             string_annotations_level: Level::Error,
-            local_imports_level: Level::Error,
+            imports_ban_local_level: Level::Error,
             known_first_party: Vec::new(),
             docstring_line_length_level: Level::Info,
             // House-style rules are opt-in.
@@ -167,7 +167,7 @@ struct RawPython {
 #[derive(Debug, Deserialize, Default)]
 #[serde(default, rename_all = "kebab-case")]
 struct RawRules {
-    local_imports: RawLocalImports,
+    imports_ban_local: RawImportsBanLocal,
     docstring_style: RawRuleEntry,
     docstring_start: RawRuleEntry,
     string_annotations: RawRuleEntry,
@@ -317,40 +317,40 @@ impl Default for RawRuleEntry {
     }
 }
 
-/// local-imports carries extra settings, so it accepts the bare level
+/// imports-ban-local carries extra settings, so it accepts the bare level
 /// or a table with `level` and `known-first-party`.
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
-enum RawLocalImports {
+enum RawImportsBanLocal {
     Level(Level),
-    Table(RawLocalImportsTable),
+    Table(RawImportsBanLocalTable),
 }
 
-impl RawLocalImports {
+impl RawImportsBanLocal {
     fn level(&self) -> Option<Level> {
         match self {
-            RawLocalImports::Level(level) => Some(*level),
-            RawLocalImports::Table(t) => t.level,
+            RawImportsBanLocal::Level(level) => Some(*level),
+            RawImportsBanLocal::Table(t) => t.level,
         }
     }
 
     fn known_first_party(self) -> Vec<String> {
         match self {
-            RawLocalImports::Level(_) => Vec::new(),
-            RawLocalImports::Table(t) => t.known_first_party,
+            RawImportsBanLocal::Level(_) => Vec::new(),
+            RawImportsBanLocal::Table(t) => t.known_first_party,
         }
     }
 }
 
-impl Default for RawLocalImports {
+impl Default for RawImportsBanLocal {
     fn default() -> Self {
-        RawLocalImports::Table(RawLocalImportsTable::default())
+        RawImportsBanLocal::Table(RawImportsBanLocalTable::default())
     }
 }
 
 #[derive(Debug, Deserialize, Default)]
 #[serde(default, rename_all = "kebab-case")]
-struct RawLocalImportsTable {
+struct RawImportsBanLocalTable {
     level: Option<Level>,
     known_first_party: Vec<String>,
 }
@@ -493,12 +493,12 @@ impl Config {
                 .string_annotations
                 .level()
                 .unwrap_or(defaults.string_annotations_level),
-            local_imports_level: raw
+            imports_ban_local_level: raw
                 .rules
-                .local_imports
+                .imports_ban_local
                 .level()
-                .unwrap_or(defaults.local_imports_level),
-            known_first_party: raw.rules.local_imports.known_first_party(),
+                .unwrap_or(defaults.imports_ban_local_level),
+            known_first_party: raw.rules.imports_ban_local.known_first_party(),
             docstring_line_length_level: raw
                 .rules
                 .docstring_line_length
@@ -589,7 +589,7 @@ mod tests {
     fn defaults() {
         let c = Config::default();
         assert_eq!(c.docstring_style, DocStyle::Rest);
-        assert_eq!(c.local_imports_level, Level::Error);
+        assert_eq!(c.imports_ban_local_level, Level::Error);
         assert_eq!(c.docstring_level, Level::Error);
         assert_eq!(c.string_annotations_level, Level::Error);
         assert_eq!(c.docstring_line_length_level, Level::Info);
@@ -618,7 +618,7 @@ mod tests {
         let text = r#"
 [tool.sweep.rules]
 docstring-style = "warn"
-local-imports = "info"
+imports-ban-local = "info"
 string-annotations = { level = "off" }
 
 [tool.sweep.rules.docstring-line-length]
@@ -626,7 +626,7 @@ level = "warn"
 "#;
         let c = Config::from_toml(text, Path::new("pyproject.toml")).unwrap();
         assert_eq!(c.docstring_level, Level::Warn);
-        assert_eq!(c.local_imports_level, Level::Info);
+        assert_eq!(c.imports_ban_local_level, Level::Info);
         assert_eq!(c.string_annotations_level, Level::Off);
         assert_eq!(c.docstring_line_length_level, Level::Warn);
         assert_eq!(c.docstring_start_level, Level::Error); // untouched default
@@ -679,7 +679,7 @@ known-first-party = ["internal_lib"]
 [tool.sweep.python]
 docstring-style = "google"
 
-[tool.sweep.rules.local-imports]
+[tool.sweep.rules.imports-ban-local]
 level = "info"
 
 [tool.sweep.rules.docstring-line-length]
@@ -687,7 +687,7 @@ level = "warn"
 "#;
         let c = Config::from_toml(text, Path::new("pyproject.toml")).unwrap();
         assert_eq!(c.docstring_style, DocStyle::Google);
-        assert_eq!(c.local_imports_level, Level::Info);
+        assert_eq!(c.imports_ban_local_level, Level::Info);
         assert_eq!(c.docstring_line_length_level, Level::Warn);
         assert!(c.known_first_party.contains(&"my_pkg".to_string()));
         assert!(c.known_first_party.contains(&"internal_lib".to_string()));

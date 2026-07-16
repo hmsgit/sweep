@@ -35,7 +35,7 @@ also be passed through pre-commit's `args`, since pre-commit runs
       - id: sweep
         args: [--fix]                      # same as sweep-fix
       - id: sweep
-        args: [--select, local-imports]    # run a single rule
+        args: [--select, imports-ban-local]    # run a single rule
 ```
 
 ### As a CLI
@@ -69,7 +69,7 @@ See [Extending](#extending) for how to add a rule or a language.
 
 | rule | detects | `--fix` |
 | --- | --- | --- |
-| [`local-imports`](#local-imports) | `import` / `from … import` inside functions | hoists to the module import block, section-sorted |
+| [`imports-ban-local`](#imports-ban-local) | `import` / `from … import` inside functions | hoists to the module import block, section-sorted |
 | [`docstring-style`](#docstring-style) | docstrings following a different convention than configured; wrong inline markup | converts to the configured convention; fixes markup |
 | [`string-annotations`](#string-annotations) | quoted type annotations like `x: "Foo"` | unquotes; inserts `from __future__ import annotations` |
 | [`docstring-start`](#docstring-start) | multi-line docstrings whose content starts on the opening-quote line | moves the content to the next line, aligned with the quotes |
@@ -87,7 +87,7 @@ See [Extending](#extending) for how to add a rule or a language.
 | `casing-module-const` | module constant names not in the configured case | warn-only (cross-file rename) |
 | `no-emoji` | any emoji/unicode icon (pictographs, ✓/✗, arrows, shapes) not in the allowed set | deletes in comments/docstrings; warn-only inside strings |
 
-### local-imports
+### imports-ban-local
 
 Imports belong at module level. Function-level imports usually exist for
 one of two reasons — breaking an import cycle, or deferring a heavy/optional
@@ -280,7 +280,7 @@ Every rule has one knob, `level`, and it decides everything:
 | `warn` | yes | yes | only with `--strict` |
 | `error` | yes | yes | **yes** |
 
-Defaults: `local-imports`, `docstring-style` and `string-annotations`
+Defaults: `imports-ban-local`, `docstring-style` and `string-annotations`
 are `error`; `docstring-line-length` is `info`. Relax rules to `warn`
 (fixed but not gating) or `info` (notify only) per project.
 
@@ -310,10 +310,16 @@ Grammar:
 - `# sweep: ignore` — silence every rule for the line.
 - `# sweep: ignore[rule-a, rule-b] <optional reason>` — silence specific rules.
 - `# sweep: avoid-cycle <optional reason>` — shorthand for
-  `ignore[local-imports]` with cycle-avoidance as the stated reason.
+  `ignore[imports-ban-local]` with cycle-avoidance as the stated reason.
 
 Reasons are free text and encouraged; they are for the next reader, not
 for the tool.
+
+Blanket markers from other tools are honored too: a bare `# noqa` or a
+bare `# type: ignore` on a line suppresses sweep findings on that line
+(same-line only, matching flake8/mypy semantics — no line-above reach).
+Code-carrying forms (`# noqa: F401`, `# type: ignore[union-attr]`) name
+that tool's rules, say nothing about sweep, and don't suppress.
 
 ## Configuration
 
@@ -334,7 +340,7 @@ line-length = 79              # falls back to [tool.ruff].line-length, then 79
 [tool.sweep.python]
 docstring-style = "rest"      # rest (default) | google | numpy
 
-[tool.sweep.rules.local-imports]
+[tool.sweep.rules.imports-ban-local]
 level = "error"               # off | info | warn | error (default: error)
 known-first-party = ["mypkg"]
 
@@ -357,7 +363,7 @@ one line each:
 ```toml
 [tool.sweep.rules]
 docstring-style = "warn"
-local-imports = "warn"
+imports-ban-local = "warn"
 string-annotations = "warn"
 ```
 
@@ -402,7 +408,7 @@ Findings render ruff-style — location, severity, rule, message, the
 offending line with a caret underline, and `[*]` marking fixable:
 
 ```
-app/models.py:21:5: error[local-imports] `import json` inside a function; hoist to module level or mark it `# sweep: avoid-cycle` [*]
+app/models.py:21:5: error[imports-ban-local] `import json` inside a function; hoist to module level or mark it `# sweep: avoid-cycle` [*]
    |
 21 |     import json
    |     ^^^^^^^^^^^

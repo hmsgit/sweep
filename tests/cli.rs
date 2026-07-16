@@ -107,7 +107,7 @@ fn check_mode_reports_without_touching_files() {
     assert_eq!(before, after, "check without --fix must not modify files");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("[local-imports]"), "stdout:\n{stdout}");
+    assert!(stdout.contains("[imports-ban-local]"), "stdout:\n{stdout}");
 }
 
 #[test]
@@ -122,7 +122,7 @@ fn select_limits_rules() {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        !stdout.contains("[local-imports]"),
+        !stdout.contains("[imports-ban-local]"),
         "--select must exclude other rules:\n{stdout}"
     );
 
@@ -223,13 +223,13 @@ fn concise_format_is_one_line_per_finding() {
     // Every finding line still carries location, severity[rule], message.
     let finding_lines: Vec<&str> = stdout
         .lines()
-        .filter(|l| l.contains("[local-imports]"))
+        .filter(|l| l.contains("[imports-ban-local]"))
         .collect();
     assert!(!finding_lines.is_empty());
     assert!(
         finding_lines
             .iter()
-            .all(|l| l.contains("input.py:") && l.contains("error[local-imports]")),
+            .all(|l| l.contains("input.py:") && l.contains("error[imports-ban-local]")),
         "stdout:\n{stdout}"
     );
 }
@@ -263,7 +263,7 @@ fn warns_pass_unless_strict() {
     let temp = tempfile::tempdir().unwrap();
     std::fs::write(
         temp.path().join("sweep.toml"),
-        "[rules.local-imports]\nlevel = \"warn\"\n",
+        "[rules.imports-ban-local]\nlevel = \"warn\"\n",
     )
     .unwrap();
     std::fs::write(
@@ -275,7 +275,7 @@ fn warns_pass_unless_strict() {
     let output = run_sweep(temp.path(), &["check", "."]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("warning[local-imports]"),
+        stdout.contains("warning[imports-ban-local]"),
         "stdout:\n{stdout}"
     );
     assert_eq!(output.status.code(), Some(0), "warn alone must pass");
@@ -297,5 +297,5 @@ fn explicit_file_paths_are_checked() {
     // pre-commit style: pass the file, not the directory.
     let output = run_sweep(temp.path(), &["check", "input.py"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("[local-imports]"), "stdout:\n{stdout}");
+    assert!(stdout.contains("[imports-ban-local]"), "stdout:\n{stdout}");
 }

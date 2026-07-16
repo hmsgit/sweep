@@ -10,5 +10,19 @@ def annotated(x: "Thing") -> None:  # sweep: ignore[string-annotations] runtime 
     return None
 
 
+def blanket_noqa():
+    import os  # noqa
+    return os
+
+
+def blanket_type_ignore(x: "Thing") -> None:  # type: ignore
+    return None
+
+
+def coded_noqa_does_not_apply():
+    import sys  # noqa: F401
+    return sys
+
+
 class Thing:
     pass

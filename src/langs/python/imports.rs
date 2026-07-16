@@ -1,4 +1,4 @@
-//! Import classification and the hoist fix used by the local-imports rule.
+//! Import classification and the hoist fix used by the imports-ban-local rule.
 
 use tree_sitter::Node;
 
