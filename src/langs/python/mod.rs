@@ -58,6 +58,34 @@ pub fn line_end_inclusive(source: &str, offset: usize) -> usize {
         .unwrap_or(source.len())
 }
 
+/// True when the assignment's right side is a typing special-form
+/// constructor — `T = TypeVar("T")`, `P = ParamSpec("P")`, … Their
+/// conventional UPPER names are neither constants to annotate nor
+/// casing subjects.
+pub fn is_typing_special_assignment(assignment: Node, source: &str) -> bool {
+    let Some(right) = assignment.child_by_field_name("right") else {
+        return false;
+    };
+    if right.kind() != "call" {
+        return false;
+    }
+    let Some(function) = right.child_by_field_name("function") else {
+        return false;
+    };
+    let text = &source[function.byte_range()];
+    let base = text.rsplit('.').next().unwrap_or(text);
+    matches!(
+        base,
+        "TypeVar"
+            | "ParamSpec"
+            | "TypeVarTuple"
+            | "NewType"
+            | "TypeAliasType"
+            | "NamedTuple"
+            | "namedtuple"
+    )
+}
+
 /// True when the module already has `from __future__ import annotations`.
 pub fn has_future_annotations(root: Node, source: &str) -> bool {
     let mut cursor = root.walk();

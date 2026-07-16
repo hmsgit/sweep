@@ -4,7 +4,7 @@ use crate::engine::context::FileContext;
 use crate::engine::diagnostic::Diagnostic;
 use crate::engine::fix::{Edit, Fix};
 use crate::engine::rule::Rule;
-use crate::langs::python::top_insertion_offset;
+use crate::langs::python::{is_typing_special_assignment, top_insertion_offset};
 
 /// Module-level constants (UPPER_CASE names) should carry a `Final`
 /// annotation. The fix adds `: Final` (or wraps an existing annotation
@@ -58,11 +58,32 @@ impl Rule for AnnotateModuleConst {
                 continue;
             }
             let name = &ctx.source[left.byte_range()];
-            if !is_constant_name(name) || rebound.contains(&name.to_string()) {
+            if !is_constant_name(name)
+                || rebound.contains(&name.to_string())
+                || is_typing_special_assignment(assignment, ctx.source)
+            {
                 continue;
             }
             let annotation = assignment.child_by_field_name("type");
             if annotation.is_some_and(|t| ctx.source[t.byte_range()].contains("Final")) {
+                continue;
+            }
+
+            // An existing annotation is the author's choice — hint that
+            // Final[T] exists, but never rewrite it.
+            if let Some(t) = annotation {
+                let ty = &ctx.source[t.byte_range()];
+                diagnostics.push(
+                    Diagnostic::new(
+                        self.name(),
+                        format!(
+                            "module constant `{name}` is not Final; consider `{name}: Final[{ty}] = …`"
+                        ),
+                        left.start_byte(),
+                        left.end_byte(),
+                    )
+                    .with_severity(severity),
+                );
                 continue;
             }
 
@@ -79,14 +100,7 @@ impl Rule for AnnotateModuleConst {
                 if needs_import {
                     edits.push(import_edit.clone());
                 }
-                match annotation {
-                    Some(t) => edits.push(Edit::replace(
-                        t.start_byte(),
-                        t.end_byte(),
-                        format!("Final[{}]", &ctx.source[t.byte_range()]),
-                    )),
-                    None => edits.push(Edit::insert(left.end_byte(), ": Final".to_string())),
-                }
+                edits.push(Edit::insert(left.end_byte(), ": Final".to_string()));
                 diagnostic = diagnostic.with_fix(Fix::new(edits));
             }
             diagnostics.push(diagnostic);

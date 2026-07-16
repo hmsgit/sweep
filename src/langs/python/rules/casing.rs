@@ -126,6 +126,11 @@ impl Rule for CasingModuleConst {
             if name.starts_with('_') || !name.chars().any(|c| c.is_alphabetic()) {
                 continue;
             }
+            // Typing special forms (T = TypeVar("T")) follow their own
+            // naming convention.
+            if crate::langs::python::is_typing_special_assignment(assignment, ctx.source) {
+                continue;
+            }
             // A "constant" is recognizable by SCREAMING_CASE or an
             // existing Final annotation; plain lowercase assignments
             // are indistinguishable from module state and are skipped.

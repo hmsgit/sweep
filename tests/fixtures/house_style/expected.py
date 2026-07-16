@@ -2,9 +2,12 @@
 
 from typing import Final
 from enum import Enum
+from typing import ParamSpec, TypeVar
 
+T = TypeVar("T")
+P = ParamSpec("P")
 TIMEOUT: Final = 5
-RETRIES: Final[int] = 3  # tuned
+RETRIES: int = 3  # tuned
 TOGGLE = False
 TOGGLE = True
 

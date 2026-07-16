@@ -1,7 +1,10 @@
 """House style fixture."""
 
 from enum import Enum
+from typing import ParamSpec, TypeVar
 
+T = TypeVar("T")
+P = ParamSpec("P")
 TIMEOUT = 5
 RETRIES: int = 3  # tuned ✓
 TOGGLE = False
