@@ -373,6 +373,27 @@ output, and re-runs to prove idempotency.
 extension in `main.rs` / `engine/runner.rs`. The engine (diagnostics,
 fixes, runner, suppression comments, config) is language-agnostic.
 
+## Releasing
+
+Cargo.toml carries the SemVer version (`0.1.0-beta.1`); PyPI and git
+tags use the PEP 440 spelling (`0.1.0b1` / `v0.1.0b1`), which maturin
+derives automatically. `scripts/bump.py` owns the mapping and the bump
+logic:
+
+```console
+$ scripts/bump.py --beta          # 0.1.0 → 0.1.0-beta.1  (or beta.N → beta.N+1)
+$ scripts/bump.py --rc            # beta.N → rc.1          (or rc.N → rc.N+1)
+$ scripts/bump.py                 # rc.N → final           (strips the pre-release)
+$ scripts/bump.py minor --beta    # 0.1.x → 0.2.0-beta.1
+$ scripts/bump.py patch --git     # bump + commit + tag; then: git push --follow-tags
+```
+
+Pushing a `v*` tag triggers the release workflow (wheels + sdist →
+PyPI). The same thing is available in the GitHub UI as the `bump`
+workflow (Actions → bump → Run workflow, pick level and channel);
+it commits, tags, and dispatches the release for you. Published
+versions are immutable on PyPI — never move a tag that has released.
+
 ## Naming
 
 Internally everything is `sweep` — repo, crate, binary, config tables,

@@ -1,0 +1,59 @@
+# Manually dispatched version bump: runs scripts/bump.py, pushes the
+# release commit + tag, then dispatches release.yml on the new tag
+# (tags pushed with GITHUB_TOKEN do not fire tag-triggered workflows,
+# so the dispatch is explicit).
+
+name: bump
+
+on:
+  workflow_dispatch:
+    inputs:
+      level:
+        description: Version component to bump
+        type: choice
+        options: [none, patch, minor, major]
+        default: none
+      pre:
+        description: Pre-release channel
+        type: choice
+        options: [none, beta, rc]
+        default: none
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Bump version
+        id: bump
+        run: |
+          args=""
+          [ "${{ inputs.level }}" != "none" ] && args="${{ inputs.level }}"
+          [ "${{ inputs.pre }}" != "none" ] && args="$args --${{ inputs.pre }}"
+          python3 scripts/bump.py $args
+          echo "tag=v$(python3 -c "
+          import re, sys
+          sys.path.insert(0, 'scripts')
+          from bump import current_version, pep440
+          print(pep440(current_version()))
+          ")" >> "$GITHUB_OUTPUT"
+      - name: Commit, tag and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock README.md
+          git commit -m "Release ${TAG#v}"
+          git tag -a "$TAG" -m "Release ${TAG#v}"
+          git push --follow-tags
+        env:
+          TAG: ${{ steps.bump.outputs.tag }}
+      - name: Dispatch release
+        run: gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$TAG"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.bump.outputs.tag }}
