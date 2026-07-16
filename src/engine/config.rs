@@ -85,6 +85,30 @@ impl Case {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DictForm {
+    Literal,
+    #[serde(alias = "func")]
+    Function,
+}
+
+/// Config for the dict-style rule: a level plus the target form.
+#[derive(Debug, Clone, Copy)]
+pub struct DictStyleConfig {
+    pub level: Level,
+    pub form: DictForm,
+}
+
+impl Default for DictStyleConfig {
+    fn default() -> Self {
+        Self {
+            level: Level::Off,
+            form: DictForm::Function,
+        }
+    }
+}
+
 /// Config for the casing-* rules: a level plus the target case.
 #[derive(Debug, Clone, Copy)]
 pub struct CasingConfig {
@@ -114,7 +138,7 @@ pub struct Config {
     pub imports_ban_local_level: Level,
     pub known_first_party: Vec<String>,
     pub docstring_line_length_level: Level,
-    pub dict_kwargs_level: Level,
+    pub dict_style: DictStyleConfig,
     pub annotate_module_const_level: Level,
     pub casing_enum_key: CasingConfig,
     pub casing_enum_val: CasingConfig,
@@ -136,7 +160,7 @@ impl Default for Config {
             known_first_party: Vec::new(),
             docstring_line_length_level: Level::Info,
             // House-style rules are opt-in.
-            dict_kwargs_level: Level::Off,
+            dict_style: DictStyleConfig::default(),
             annotate_module_const_level: Level::Off,
             casing_enum_key: CasingConfig::default(),
             casing_enum_val: CasingConfig::default(),
@@ -175,11 +199,79 @@ struct RawRules {
     docstring_start: RawRuleEntry,
     string_annotations: RawRuleEntry,
     docstring_line_length: RawRuleEntry,
-    dict_kwargs: RawRuleEntry,
+    dict_style: RawDictStyle,
     annotate_module_const: RawRuleEntry,
     casing_enum_key: RawCasing,
     casing_enum_val: RawCasing,
     casing_module_const: RawCasing,
+}
+
+/// dict-style accepts `dict-style = "literal"` / `"function"` / `"func"`
+/// (form shorthand, which also enables the rule at warn), a bare level,
+/// or the table form with `level` and `style`.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawDictStyle {
+    Token(String),
+    Table(RawDictStyleTable),
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default, rename_all = "kebab-case")]
+struct RawDictStyleTable {
+    level: Option<Level>,
+    style: Option<DictForm>,
+}
+
+impl RawDictStyle {
+    fn resolve(&self, path: &Path) -> Result<DictStyleConfig> {
+        let defaults = DictStyleConfig::default();
+        match self {
+            RawDictStyle::Token(token) => match token.as_str() {
+                "literal" => Ok(DictStyleConfig {
+                    level: Level::Warn,
+                    form: DictForm::Literal,
+                }),
+                "function" | "func" => Ok(DictStyleConfig {
+                    level: Level::Warn,
+                    form: DictForm::Function,
+                }),
+                "off" => Ok(DictStyleConfig {
+                    level: Level::Off,
+                    ..defaults
+                }),
+                "info" => Ok(DictStyleConfig {
+                    level: Level::Info,
+                    ..defaults
+                }),
+                "warn" => Ok(DictStyleConfig {
+                    level: Level::Warn,
+                    ..defaults
+                }),
+                "error" => Ok(DictStyleConfig {
+                    level: Level::Error,
+                    ..defaults
+                }),
+                other => anyhow::bail!(
+                    "invalid dict-style value {other:?} in {} (expected literal|function or a level)",
+                    path.display()
+                ),
+            },
+            RawDictStyle::Table(t) => Ok(DictStyleConfig {
+                level: t.level.unwrap_or(Level::Warn),
+                form: t.style.unwrap_or(defaults.form),
+            }),
+        }
+    }
+}
+
+impl Default for RawDictStyle {
+    fn default() -> Self {
+        RawDictStyle::Table(RawDictStyleTable {
+            level: Some(Level::Off),
+            style: None,
+        })
+    }
 }
 
 /// Casing rules accept `casing-enum-key = "lower"` (case shorthand,
@@ -462,11 +554,7 @@ impl Config {
                 .docstring_line_length
                 .level()
                 .unwrap_or(defaults.docstring_line_length_level),
-            dict_kwargs_level: raw
-                .rules
-                .dict_kwargs
-                .level()
-                .unwrap_or(defaults.dict_kwargs_level),
+            dict_style: raw.rules.dict_style.resolve(path)?,
             annotate_module_const_level: raw
                 .rules
                 .annotate_module_const
@@ -603,7 +691,7 @@ level = "warn"
     #[test]
     fn house_style_rules_default_off_and_accept_shorthand() {
         let c = Config::from_toml("", Path::new("pyproject.toml")).unwrap();
-        assert_eq!(c.dict_kwargs_level, Level::Off);
+        assert_eq!(c.dict_style.level, Level::Off);
         assert_eq!(c.annotate_module_const_level, Level::Off);
         assert_eq!(c.casing_enum_key.level, Level::Off);
         assert_eq!(c.no_emoji_level, Level::Off);
@@ -613,12 +701,12 @@ level = "warn"
 allowed-emojis = "→✓"
 
 [tool.sweep.rules]
-dict-kwargs = "warn"
+dict-style = "func"
 casing-enum-key = "lower"
 casing-module-const = { level = "error", case = "upper" }
 "#;
         let c = Config::from_toml(text, Path::new("pyproject.toml")).unwrap();
-        assert_eq!(c.dict_kwargs_level, Level::Warn);
+        assert_eq!(c.dict_style.level, Level::Warn);
         assert_eq!(c.casing_enum_key.level, Level::Warn);
         assert_eq!(c.casing_enum_key.case, Case::Lower);
         assert_eq!(c.casing_module_const.level, Level::Error);

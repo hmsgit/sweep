@@ -80,7 +80,7 @@ See [Extending](#extending) for how to add a rule or a language.
 
 | rule | detects | `--fix` |
 | --- | --- | --- |
-| `dict-kwargs` | `{"key": val}` literals where every key is an identifier string | rewrites to `dict(key=val)` |
+| `dict-style` | dicts built contrary to the configured form (`literal` or `function`) | rewrites in the configured direction |
 | `annotate-module-const` | UPPER_CASE module constants without a `Final` annotation | adds `: Final` / wraps as `Final[T]`, inserts the typing import |
 | `casing-enum-key` | enum member names not in the configured case | warn-only (cross-file rename) |
 | `casing-enum-val` | enum string values not in the configured case | warn-only (changes serialized data) |
@@ -240,7 +240,7 @@ conventions and stay `off` until a project opts in:
 allowed-emojis = ""              # presence enables no-emoji; "" = no exceptions
 
 [tool.sweep.rules]
-dict-kwargs = "warn"
+dict-style = "func"           # literal | function/func (shorthand enables at warn)
 annotate-module-const = "warn"
 casing-enum-key = "lower"        # lower | upper (shorthand enables at warn)
 casing-enum-val = "lower"
@@ -249,7 +249,7 @@ casing-module-const = "lower"
 
 Notes:
 
-- `dict-kwargs` skips dicts it can't express faithfully: non-string or
+- `dict-style` converts only what it can express faithfully: non-string or
   non-identifier keys, Python keywords, duplicate keys, or comments
   inside the literal. Splats pass through (`{**a, "b": 1}` →
   `dict(**a, b=1)`).

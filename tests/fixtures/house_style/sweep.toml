@@ -1,5 +1,5 @@
 [rules]
-dict-kwargs = "warn"
+dict-style = "func"
 annotate-module-const = "warn"
 casing-enum-key = "lower"
 casing-enum-val = "lower"
