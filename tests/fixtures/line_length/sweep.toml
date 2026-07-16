@@ -1,7 +1,5 @@
 line-length = 60
 
-[python]
+[rules]
 docstring-style = "rest"
-
-[rules.docstring-line-length]
-level = "warn"
+docstring-line-length = "warn"

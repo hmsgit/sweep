@@ -1,5 +1,5 @@
 [project]
 name = "mypkg"
 
-[tool.sweep.python]
+[tool.sweep.rules]
 docstring-style = "rest"

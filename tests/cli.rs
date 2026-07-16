@@ -141,12 +141,12 @@ fn config_is_resolved_per_file_for_monorepos() {
 
     std::fs::write(
         root.join("apps/alpha/pyproject.toml"),
-        "[tool.sweep.python]\ndocstring-style = \"google\"\n",
+        "[tool.sweep.rules]\ndocstring-style = \"google\"\n",
     )
     .unwrap();
     std::fs::write(
         root.join("apps/beta/pyproject.toml"),
-        "[tool.sweep.python]\ndocstring-style = \"rest\"\n",
+        "[tool.sweep.rules]\ndocstring-style = \"rest\"\n",
     )
     .unwrap();
 

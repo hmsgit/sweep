@@ -1,9 +1,8 @@
 [rules]
+allowed-emojis = "🎉"
 dict-style = "func"
 annotate-module-const = "warn"
 casing-enum-key = "lower"
 casing-enum-val = "lower"
 casing-module-const = "lower"
 
-[python]
-allowed-emojis = "🎉"

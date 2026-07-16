@@ -178,24 +178,14 @@ impl Default for Config {
 struct RawSweep {
     exclude: Vec<String>,
     line_length: Option<usize>,
-    python: RawPython,
     rules: RawRules,
-}
-
-#[derive(Debug, Deserialize, Default)]
-#[serde(default, rename_all = "kebab-case")]
-struct RawPython {
-    docstring_style: Option<DocStyle>,
-    /// The one knob for the no-emoji rule: its presence enables the
-    /// rule (at warn), its value is the exception list ("" = none).
-    allowed_emojis: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
 #[serde(default, rename_all = "kebab-case")]
 struct RawRules {
     imports_ban_local: RawImportsBanLocal,
-    docstring_style: RawRuleEntry,
+    docstring_style: RawDocstringStyle,
     docstring_start: RawRuleEntry,
     string_annotations: RawRuleEntry,
     docstring_line_length: RawRuleEntry,
@@ -204,6 +194,59 @@ struct RawRules {
     casing_enum_key: RawCasing,
     casing_enum_val: RawCasing,
     casing_module_const: RawCasing,
+    /// The one knob for the no-emoji rule: its presence enables the
+    /// rule (at warn), its value is the exception list ("" = none).
+    allowed_emojis: Option<String>,
+}
+
+/// docstring-style accepts `docstring-style = "rest"` / `"google"` /
+/// `"numpy"` (convention shorthand — the rule is on by default, so this
+/// keeps the default error level), a bare level, or the table form
+/// with `level` and `style`.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawDocstringStyle {
+    Token(String),
+    Table(RawDocstringStyleTable),
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default, rename_all = "kebab-case")]
+struct RawDocstringStyleTable {
+    level: Option<Level>,
+    style: Option<DocStyle>,
+}
+
+impl RawDocstringStyle {
+    fn resolve(&self, path: &Path) -> Result<(Level, DocStyle)> {
+        let default_level = Config::default().docstring_level;
+        match self {
+            RawDocstringStyle::Token(token) => match token.as_str() {
+                "rest" => Ok((default_level, DocStyle::Rest)),
+                "google" => Ok((default_level, DocStyle::Google)),
+                "numpy" => Ok((default_level, DocStyle::Numpy)),
+                "off" => Ok((Level::Off, DocStyle::default())),
+                "info" => Ok((Level::Info, DocStyle::default())),
+                "warn" => Ok((Level::Warn, DocStyle::default())),
+                "error" => Ok((Level::Error, DocStyle::default())),
+                other => anyhow::bail!(
+                    "invalid docstring-style value {other:?} in {} \
+                     (expected rest|google|numpy or a level)",
+                    path.display()
+                ),
+            },
+            RawDocstringStyle::Table(t) => Ok((
+                t.level.unwrap_or(default_level),
+                t.style.unwrap_or_default(),
+            )),
+        }
+    }
+}
+
+impl Default for RawDocstringStyle {
+    fn default() -> Self {
+        RawDocstringStyle::Table(RawDocstringStyleTable::default())
+    }
 }
 
 /// dict-style accepts `dict-style = "literal"` / `"function"` / `"func"`
@@ -521,18 +564,15 @@ impl Config {
             .and_then(|n| usize::try_from(n).ok());
 
         let defaults = Config::default();
+        let (docstring_level, docstring_style) = raw.rules.docstring_style.resolve(path)?;
         let mut config = Config {
             exclude: raw.exclude,
             line_length: raw
                 .line_length
                 .or(ruff_line_length)
                 .unwrap_or(DEFAULT_LINE_LENGTH),
-            docstring_style: raw.python.docstring_style.unwrap_or_default(),
-            docstring_level: raw
-                .rules
-                .docstring_style
-                .level()
-                .unwrap_or(defaults.docstring_level),
+            docstring_style,
+            docstring_level,
             docstring_start_level: raw
                 .rules
                 .docstring_start
@@ -563,13 +603,13 @@ impl Config {
             casing_enum_key: raw.rules.casing_enum_key.resolve(path)?,
             casing_enum_val: raw.rules.casing_enum_val.resolve(path)?,
             casing_module_const: raw.rules.casing_module_const.resolve(path)?,
-            no_emoji_level: if raw.python.allowed_emojis.is_some() {
+            no_emoji_level: if raw.rules.allowed_emojis.is_some() {
                 Level::Warn
             } else {
                 Level::Off
             },
             allowed_emojis: raw
-                .python
+                .rules
                 .allowed_emojis
                 .as_deref()
                 .unwrap_or("")
@@ -697,10 +737,8 @@ level = "warn"
         assert_eq!(c.no_emoji_level, Level::Off);
 
         let text = r#"
-[tool.sweep.python]
-allowed-emojis = "→✓"
-
 [tool.sweep.rules]
+allowed-emojis = "→✓"
 dict-style = "func"
 casing-enum-key = "lower"
 casing-module-const = { level = "error", case = "upper" }
@@ -718,7 +756,7 @@ casing-module-const = { level = "error", case = "upper" }
 
         // Empty string: enabled, no exceptions.
         let c = Config::from_toml(
-            "[tool.sweep.python]\nallowed-emojis = \"\"\n",
+            "[tool.sweep.rules]\nallowed-emojis = \"\"\n",
             Path::new("pyproject.toml"),
         )
         .unwrap();
@@ -735,7 +773,7 @@ name = "my-pkg"
 [tool.ruff.lint.isort]
 known-first-party = ["internal_lib"]
 
-[tool.sweep.python]
+[tool.sweep.rules]
 docstring-style = "google"
 
 [tool.sweep.rules.imports-ban-local]
@@ -746,9 +784,19 @@ level = "warn"
 "#;
         let c = Config::from_toml(text, Path::new("pyproject.toml")).unwrap();
         assert_eq!(c.docstring_style, DocStyle::Google);
+        assert_eq!(c.docstring_level, Level::Error); // style token keeps default level
         assert_eq!(c.imports_ban_local_level, Level::Info);
         assert_eq!(c.docstring_line_length_level, Level::Warn);
         assert!(c.known_first_party.contains(&"my_pkg".to_string()));
         assert!(c.known_first_party.contains(&"internal_lib".to_string()));
+
+        // Table form sets convention and level at once.
+        let c = Config::from_toml(
+            "[tool.sweep.rules]\ndocstring-style = { level = \"warn\", style = \"numpy\" }\n",
+            Path::new("pyproject.toml"),
+        )
+        .unwrap();
+        assert_eq!(c.docstring_style, DocStyle::Numpy);
+        assert_eq!(c.docstring_level, Level::Warn);
     }
 }

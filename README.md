@@ -236,15 +236,13 @@ The core rules above are on by default; these six encode house
 conventions and stay `off` until a project opts in:
 
 ```toml
-[tool.sweep.python]
-allowed-emojis = ""              # presence enables no-emoji; "" = no exceptions
-
 [tool.sweep.rules]
-dict-style = "func"           # literal | function/func (shorthand enables at warn)
+dict-style = "func"              # literal | function/func (shorthand enables at warn)
 annotate-module-const = "warn"
 casing-enum-key = "lower"        # lower | upper (shorthand enables at warn)
 casing-enum-val = "lower"
 casing-module-const = "lower"
+allowed-emojis = ""              # presence enables no-emoji; "" = no exceptions
 ```
 
 Notes:
@@ -264,7 +262,7 @@ Notes:
   from module state and are never flagged.
 - Casing rules take a table form too:
   `casing-module-const = { level = "error", case = "upper" }`.
-- `no-emoji` has a single knob: `[tool.sweep.python] allowed-emojis`.
+- `no-emoji` has a single knob: `allowed-emojis` under `[tool.sweep.rules]`.
   Its presence enables the rule (at warn); its value is the exception
   list (`""` = flag every emoji/icon). Detected: emoji blocks, dingbats
   (✓/✗), arrows (→), misc technical and geometric-shape characters;
@@ -339,8 +337,10 @@ Everything is optional:
 exclude = ["migrations/"]     # path substrings to skip when walking directories
 line-length = 79              # falls back to [tool.ruff].line-length, then 79
 
-[tool.sweep.python]
-docstring-style = "rest"      # rest (default) | google | numpy
+[tool.sweep.rules]
+docstring-style = "rest"      # rest (default) | google | numpy — sets the
+                              # convention; table form also sets the level:
+                              # docstring-style = { level = "warn", style = "google" }
 # allowed-emojis = "→✓"       # set to enable no-emoji; the value is the
                               # exception list ("" = flag every emoji/icon)
 
