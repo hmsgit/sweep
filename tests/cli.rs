@@ -209,6 +209,32 @@ fn term_modes_control_escape_sequences() {
 }
 
 #[test]
+fn concise_format_is_one_line_per_finding() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/hoist");
+    let temp = tempfile::tempdir().unwrap();
+    setup(&fixture, temp.path());
+
+    let output = run_sweep(temp.path(), &["check", ".", "--output-format", "concise"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains(" | "),
+        "concise must not print snippet blocks:\n{stdout}"
+    );
+    // Every finding line still carries location, severity[rule], message.
+    let finding_lines: Vec<&str> = stdout
+        .lines()
+        .filter(|l| l.contains("[local-imports]"))
+        .collect();
+    assert!(!finding_lines.is_empty());
+    assert!(
+        finding_lines
+            .iter()
+            .all(|l| l.contains("input.py:") && l.contains("error[local-imports]")),
+        "stdout:\n{stdout}"
+    );
+}
+
+#[test]
 fn line_length_defaults_to_info_only() {
     // No config: limit 79, level info — the long docstring line is
     // reported as info, never fixed, and does not fail the run.

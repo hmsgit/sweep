@@ -287,7 +287,8 @@ See [Severity levels](#severity-levels) for what each level does.
 ## CLI reference
 
 ```
-sweep check [PATHS]... [--fix] [--strict] [--select RULES] [--ignore RULES] [--config PATH]
+sweep check [PATHS]... [--fix] [--strict] [--output-format FMT] [--term MODE]
+            [--select RULES] [--ignore RULES] [--config PATH]
 sweep rules
 ```
 
@@ -301,6 +302,10 @@ sweep rules
 - `--strict` — treat warnings as errors for the exit code (gate CI
   without touching config).
 - `--select` / `--ignore` — comma-separated rule names to run / skip.
+- `--output-format full|concise` — `full` (default) renders one block
+  per finding with the source snippet; `concise` prints exactly one
+  line per finding (the header only), handy for greps, logs and dense
+  pre-commit output.
 - `--term auto|plain|color|hyper` — terminal output control. `auto`
   (default) colors when stdout is a TTY (`NO_COLOR` respected) and adds
   OSC 8 hyperlinks on the `path:line:col` location when the terminal is

@@ -14,7 +14,7 @@ use engine::config::ConfigResolver;
 use engine::diagnostic::Severity;
 use engine::rule::Rule;
 use engine::runner::{FileReport, check_file};
-use output::{Formatter, TermMode};
+use output::{Formatter, OutputFormat, TermMode};
 
 /// Fast, multi-language cleanup passes for pre-commit.
 #[derive(Parser)]
@@ -41,6 +41,9 @@ enum Command {
         /// Terminal output: auto-detect colors/hyperlinks, or force them.
         #[arg(long, value_enum, default_value_t = TermMode::Auto)]
         term: TermMode,
+        /// Finding layout: full (snippet blocks) or concise (one line each).
+        #[arg(long, value_enum, default_value_t = OutputFormat::Full)]
+        output_format: OutputFormat,
         /// Comma-separated rule names to run (default: all).
         #[arg(long, value_delimiter = ',')]
         select: Vec<String>,
@@ -79,6 +82,7 @@ fn run() -> Result<ExitCode> {
             fix,
             strict,
             term,
+            output_format,
             select,
             ignore,
             config,
@@ -87,6 +91,7 @@ fn run() -> Result<ExitCode> {
             fix,
             strict,
             term,
+            output_format,
             &select,
             &ignore,
             config.as_deref(),
@@ -94,11 +99,13 @@ fn run() -> Result<ExitCode> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn check_command(
     paths: &[PathBuf],
     fix: bool,
     strict: bool,
     term: TermMode,
+    output_format: OutputFormat,
     select: &[String],
     ignore: &[String],
     config_path: Option<&Path>,
@@ -142,7 +149,7 @@ fn check_command(
         .collect::<Result<Vec<_>>>()?;
     reports.sort_by(|a, b| a.path.cmp(&b.path));
 
-    let formatter = Formatter::new(term);
+    let formatter = Formatter::new(term, output_format);
     let mut counts: [usize; 3] = [0, 0, 0]; // info, warning, error
     let mut fixed = 0usize;
     let mut fixable = 0usize;

@@ -12,6 +12,14 @@ use crate::engine::diagnostic::Severity;
 use crate::engine::runner::RenderedDiagnostic;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum OutputFormat {
+    /// One block per finding: header plus the source line with carets.
+    Full,
+    /// One line per finding.
+    Concise,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum TermMode {
     /// Colors when stdout is a terminal, hyperlinks when it supports them.
     Auto,
@@ -34,32 +42,26 @@ const CYAN: &str = "\x1b[36m";
 pub struct Formatter {
     color: bool,
     links: bool,
+    format: OutputFormat,
 }
 
 impl Formatter {
-    pub fn new(mode: TermMode) -> Self {
-        match mode {
-            TermMode::Plain => Self {
-                color: false,
-                links: false,
-            },
-            TermMode::Color => Self {
-                color: true,
-                links: false,
-            },
-            TermMode::Hyper => Self {
-                color: true,
-                links: true,
-            },
+    pub fn new(mode: TermMode, format: OutputFormat) -> Self {
+        let (color, links) = match mode {
+            TermMode::Plain => (false, false),
+            TermMode::Color => (true, false),
+            TermMode::Hyper => (true, true),
             TermMode::Auto => {
                 let tty = std::io::stdout().is_terminal();
                 let dumb = std::env::var("TERM").is_ok_and(|t| t == "dumb");
                 let color = tty && !dumb && std::env::var_os("NO_COLOR").is_none();
-                Self {
-                    color,
-                    links: color && supports_hyperlinks(),
-                }
+                (color, color && supports_hyperlinks())
             }
+        };
+        Self {
+            color,
+            links,
+            format,
         }
     }
 
@@ -105,6 +107,10 @@ impl Formatter {
             String::new()
         };
         println!("{location}: {label} {}{fix_marker}", d.message);
+
+        if self.format == OutputFormat::Concise {
+            return;
+        }
 
         let gutter_width = d.line.to_string().len();
         let bar = self.paint(BLUE, "|");
