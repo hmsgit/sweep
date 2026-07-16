@@ -1,0 +1,31 @@
+# PyPI packaging: the crate is `sweep` everywhere, but that name is
+# taken on PyPI, so the wheel publishes as `codesweep` while still
+# installing a `sweep` binary.
+
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "codesweep"
+description = "Fast, deterministic cleanup passes for pre-commit: local imports, docstring conventions, string annotations"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+keywords = ["pre-commit", "lint", "docstring", "imports", "python"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Rust",
+    "Programming Language :: Python",
+    "Topic :: Software Development :: Quality Assurance",
+]
+dynamic = ["version"]
+
+[project.urls]
+Repository = "https://github.com/hmsgit/sweep"
+
+[tool.maturin]
+bindings = "bin"
+strip = true

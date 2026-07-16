@@ -41,7 +41,9 @@ also be passed through pre-commit's `args`, since pre-commit runs
 ### As a CLI
 
 ```console
-$ cargo install --path .      # or: cargo build --release
+$ pip install codesweep       # installs the `sweep` binary (see Naming)
+$ # or from source:
+$ cargo install --path .
 $ sweep check src/            # report findings
 $ sweep check src/ --fix      # apply fixes in place
 $ sweep rules                 # list rules
@@ -374,9 +376,11 @@ fixes, runner, suppression comments, config) is language-agnostic.
 ## Naming
 
 Internally everything is `sweep` — repo, crate, binary, config tables,
-suppression comments. The name `sweep` is taken on PyPI, so any future
-wheel distribution (maturin, the ruff route) will publish as
-**`codesweep`** while keeping the `sweep` binary.
+suppression comments. The name `sweep` is taken on PyPI, so the wheel
+publishes as **`codesweep`** (maturin, `bindings = "bin"`) while
+installing the `sweep` binary. Releases are built and uploaded by
+`.github/workflows/release.yml` on `v*` tags via PyPI trusted
+publishing.
 
 ## License
 
