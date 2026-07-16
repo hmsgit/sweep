@@ -4,4 +4,7 @@ annotate-module-const = "warn"
 casing-enum-key = "lower"
 casing-enum-val = "lower"
 casing-module-const = "lower"
-no-emoji = "🎉"
+no-emoji = "warn"
+
+[python]
+allowed-emojis = "🎉"

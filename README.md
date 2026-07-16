@@ -242,8 +242,8 @@ annotate-module-const = "warn"
 casing-enum-key = "lower"        # lower | upper (shorthand enables at warn)
 casing-enum-val = "lower"
 casing-module-const = "lower"
-no-emoji = "warn"                # flag every emoji/icon…
-# no-emoji = "→✓"                # …or allow these and flag the rest (enables at warn)
+no-emoji = "warn"                # flag emoji/icons; exceptions go in
+                                 # [tool.sweep.python] allowed-emojis = "→✓"
 ```
 
 Notes:
@@ -266,8 +266,8 @@ Notes:
 - `no-emoji` detects emoji blocks, dingbats (✓/✗), arrows (→), misc
   technical and geometric-shape characters; invisible emoji plumbing
   (variation selectors, ZWJ) is cleaned up with its base character but
-  never flagged alone. Table form:
-  `no-emoji = { level = "error", allowed = "→" }`.
+  never flagged alone. The exception list lives with the language
+  settings: `[tool.sweep.python] allowed-emojis = "→✓"`.
 
 ## Severity levels
 
@@ -284,11 +284,11 @@ Defaults: `imports-ban-local`, `docstring-style` and `string-annotations`
 are `error`; `docstring-line-length` is `info`. Relax rules to `warn`
 (fixed but not gating) or `info` (notify only) per project.
 
-One pre-commit interaction to know: pre-commit hides the output of
-**passing** hooks. Findings at `info`/`warn` level are invisible in the
-check-only `sweep` hook unless you set `verbose: true` on it — or use
-the `sweep-fix` hook, where applied fixes fail the hook and show up as
-a diff anyway.
+pre-commit normally hides the output of **passing** hooks, which would
+make info/warn findings invisible. The sweep hooks therefore ship with
+`verbose: true`, and sweep prints nothing when a piped run is clean —
+so commits with findings show them even when the hook passes, and
+clean commits stay quiet.
 
 ## Suppressing findings
 
@@ -339,6 +339,7 @@ line-length = 79              # falls back to [tool.ruff].line-length, then 79
 
 [tool.sweep.python]
 docstring-style = "rest"      # rest (default) | google | numpy
+allowed-emojis = ""           # exception list for the no-emoji rule
 
 [tool.sweep.rules.imports-ban-local]
 level = "error"               # off | info | warn | error (default: error)

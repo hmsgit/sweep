@@ -43,16 +43,17 @@ pub struct Formatter {
     color: bool,
     links: bool,
     format: OutputFormat,
+    tty: bool,
 }
 
 impl Formatter {
     pub fn new(mode: TermMode, format: OutputFormat) -> Self {
+        let tty = std::io::stdout().is_terminal();
         let (color, links) = match mode {
             TermMode::Plain => (false, false),
             TermMode::Color => (true, false),
             TermMode::Hyper => (true, true),
             TermMode::Auto => {
-                let tty = std::io::stdout().is_terminal();
                 let dumb = std::env::var("TERM").is_ok_and(|t| t == "dumb");
                 let color = tty && !dumb && std::env::var_os("NO_COLOR").is_none();
                 (color, color && supports_hyperlinks())
@@ -62,6 +63,7 @@ impl Formatter {
             color,
             links,
             format,
+            tty,
         }
     }
 
@@ -138,6 +140,10 @@ impl Formatter {
         let [infos, warnings, errors] = counts;
         let remaining = infos + warnings + errors;
         match (remaining, fixed) {
+            // Silent success when piped: pre-commit hooks run with
+            // verbose: true, and an empty stdout keeps clean commits
+            // free of noise while findings stay visible.
+            (0, 0) if !self.tty => {}
             (0, 0) => println!("All clean ({files} files)."),
             (0, _) => println!("Fixed {fixed} issue(s); all clean ({files} files)."),
             _ => {

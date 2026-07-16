@@ -8,6 +8,7 @@
   language: rust
   types: [python]
   require_serial: true
+  verbose: true
 
 - id: sweep-fix
   name: sweep check --fix
@@ -16,3 +17,4 @@
   language: rust
   types: [python]
   require_serial: true
+  verbose: true

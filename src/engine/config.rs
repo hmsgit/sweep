@@ -162,6 +162,8 @@ struct RawSweep {
 #[serde(default, rename_all = "kebab-case")]
 struct RawPython {
     docstring_style: Option<DocStyle>,
+    /// Exception list for the no-emoji rule.
+    allowed_emojis: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -177,7 +179,7 @@ struct RawRules {
     casing_enum_key: RawCasing,
     casing_enum_val: RawCasing,
     casing_module_const: RawCasing,
-    no_emoji: RawNoEmoji,
+    no_emoji: RawRuleEntry,
 }
 
 /// Casing rules accept `casing-enum-key = "lower"` (case shorthand,
@@ -244,50 +246,6 @@ impl Default for RawCasing {
         RawCasing::Table(RawCasingTable {
             level: Some(Level::Off),
             case: None,
-        })
-    }
-}
-
-/// no-emoji accepts a bare level (`no-emoji = "warn"`), a bare string
-/// of allowed characters (`no-emoji = "→✓"`, which enables the rule at
-/// warn), or the table form with `level` and `allowed`.
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum RawNoEmoji {
-    Token(String),
-    Table(RawNoEmojiTable),
-}
-
-#[derive(Debug, Deserialize, Default)]
-#[serde(default, rename_all = "kebab-case")]
-struct RawNoEmojiTable {
-    level: Option<Level>,
-    allowed: Option<String>,
-}
-
-impl RawNoEmoji {
-    fn resolve(&self) -> (Level, Vec<char>) {
-        match self {
-            RawNoEmoji::Token(token) => match token.as_str() {
-                "off" => (Level::Off, Vec::new()),
-                "info" => (Level::Info, Vec::new()),
-                "warn" => (Level::Warn, Vec::new()),
-                "error" => (Level::Error, Vec::new()),
-                allowed => (Level::Warn, allowed.chars().collect()),
-            },
-            RawNoEmoji::Table(t) => (
-                t.level.unwrap_or(Level::Warn),
-                t.allowed.as_deref().unwrap_or("").chars().collect(),
-            ),
-        }
-    }
-}
-
-impl Default for RawNoEmoji {
-    fn default() -> Self {
-        RawNoEmoji::Table(RawNoEmojiTable {
-            level: Some(Level::Off),
-            allowed: None,
         })
     }
 }
@@ -517,8 +475,18 @@ impl Config {
             casing_enum_key: raw.rules.casing_enum_key.resolve(path)?,
             casing_enum_val: raw.rules.casing_enum_val.resolve(path)?,
             casing_module_const: raw.rules.casing_module_const.resolve(path)?,
-            no_emoji_level: raw.rules.no_emoji.resolve().0,
-            allowed_emojis: raw.rules.no_emoji.resolve().1,
+            no_emoji_level: raw
+                .rules
+                .no_emoji
+                .level()
+                .unwrap_or(defaults.no_emoji_level),
+            allowed_emojis: raw
+                .python
+                .allowed_emojis
+                .as_deref()
+                .unwrap_or("")
+                .chars()
+                .collect(),
         };
 
         if is_pyproject {
@@ -641,11 +609,14 @@ level = "warn"
         assert_eq!(c.no_emoji_level, Level::Off);
 
         let text = r#"
+[tool.sweep.python]
+allowed-emojis = "→✓"
+
 [tool.sweep.rules]
 dict-kwargs = "warn"
 casing-enum-key = "lower"
 casing-module-const = { level = "error", case = "upper" }
-no-emoji = "→✓"
+no-emoji = "warn"
 "#;
         let c = Config::from_toml(text, Path::new("pyproject.toml")).unwrap();
         assert_eq!(c.dict_kwargs_level, Level::Warn);
