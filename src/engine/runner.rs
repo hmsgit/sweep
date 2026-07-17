@@ -68,11 +68,8 @@ pub fn check_file(
             line_index: &line_index,
         };
 
-        let mut diagnostics: Vec<Diagnostic> = rules
-            .iter()
-            .flat_map(|rule| rule.check(&ctx))
-            .filter(|d| !suppressions.is_suppressed(d.rule, line_index.line(d.start)))
-            .collect();
+        let diagnostics: Vec<Diagnostic> = rules.iter().flat_map(|rule| rule.check(&ctx)).collect();
+        let mut diagnostics = suppressions.apply(diagnostics, &line_index);
         diagnostics.sort_by_key(|d| (d.start, d.end));
 
         let has_fixes = diagnostics.iter().any(|d| d.fix.is_some());

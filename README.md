@@ -305,15 +305,41 @@ def load(x: "Config") -> None:  # sweep: ignore[string-annotations] runtime intr
 anything_on_this_line_is_exempt()
 ```
 
-Grammar:
+Scope is explicit in the directive name — placement never silently
+changes what a directive covers:
 
-- `# sweep: ignore` — silence every rule for the line.
-- `# sweep: ignore[rule-a, rule-b] <optional reason>` — silence specific rules.
-- `# sweep: avoid-cycle <optional reason>` — shorthand for
+- `# sweep: ignore[rules] <reason>` — this line (or the line below the
+  comment). Bare `ignore` silences every rule.
+- `# sweep: ignore-block[rules]` — on a `def`/`class` header line, or
+  the line above it: everything inside that definition, decorators and
+  nested definitions included.
+- `# sweep: ignore-file[rules]` — in the file header region (comments
+  before the first real statement): the whole file.
+- `# sweep: expect[rules]` — suppresses like `ignore`, but it is an
+  **error when no matching finding was actually suppressed**. Use it
+  for temporary, self-cleaning overrides: when a refactor makes the
+  finding disappear, the stale directive announces itself instead of
+  rotting. (`ignore` is for permanent policy exceptions.)
+- `# sweep: avoid-cycle <reason>` — shorthand for
   `ignore[imports-ban-local]` with cycle-avoidance as the stated reason.
 
-Reasons are free text and encouraged; they are for the next reader, not
-for the tool.
+```python
+# sweep: ignore-file[docstring-start]        ← top of file
+"""Legacy module, old docstring shape."""
+
+
+class Flags(Enum):  # sweep: ignore-block[casing-enum-key] wire format
+    RED = 1
+
+
+def load(x: "Config") -> None:  # sweep: expect[string-annotations] until py310 drop
+    ...
+```
+
+A misplaced `ignore-file` (outside the header) or `ignore-block` (not
+attached to a definition) degrades to plain line scope. Reasons are
+free text and encouraged; they are for the next reader, not for the
+tool.
 
 Blanket markers from other tools are honored too: a bare `# noqa` or a
 bare `# type: ignore` on a line suppresses sweep findings on that line
