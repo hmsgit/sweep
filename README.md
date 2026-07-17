@@ -85,7 +85,7 @@ See [Extending](#extending) for how to add a rule or a language.
 | `casing-enum-key` | enum member names not in the configured case | warn-only (cross-file rename) |
 | `casing-enum-val` | enum string values not in the configured case | warn-only (changes serialized data) |
 | `casing-module-const` | module constant names not in the configured case | warn-only (cross-file rename) |
-| `no-emoji` | any emoji/unicode icon (pictographs, ✓/✗, arrows, shapes) not in the allowed set — enabled by setting `allowed-emojis` | deletes in comments/docstrings; warn-only inside strings |
+| `allowed-emojis` | any emoji/unicode icon (pictographs, ✓/✗, arrows, shapes) not in the allowed set — enabled by setting `allowed-emojis` | deletes in comments/docstrings; warn-only inside strings |
 
 ### imports-ban-local
 
@@ -242,7 +242,7 @@ annotate-module-const = "warn"
 casing-enum-key = "lower"        # lower | upper (shorthand enables at warn)
 casing-enum-val = "lower"
 casing-module-const = "lower"
-allowed-emojis = ""              # presence enables no-emoji; "" = no exceptions
+allowed-emojis = ""              # presence enables the rule; "" = no exceptions
 ```
 
 Notes:
@@ -262,7 +262,7 @@ Notes:
   from module state and are never flagged.
 - Casing rules take a table form too:
   `casing-module-const = { level = "error", case = "upper" }`.
-- `no-emoji` has a single knob: `allowed-emojis` under `[tool.sweep.rules]`.
+- `allowed-emojis` has a single knob: `allowed-emojis` under `[tool.sweep.rules]`.
   Its presence enables the rule (at warn); its value is the exception
   list (`""` = flag every emoji/icon). Detected: emoji blocks, dingbats
   (✓/✗), arrows (→), misc technical and geometric-shape characters;
@@ -439,7 +439,7 @@ line-length = 79              # falls back to [tool.ruff].line-length, then 79
 docstring-style = "rest"      # rest (default) | google | numpy — sets the
                               # convention; table form also sets the level:
                               # docstring-style = { level = "warn", style = "google" }
-# allowed-emojis = "→✓"       # set to enable no-emoji; the value is the
+# allowed-emojis = "→✓"       # set to enable the rule; the value is the
                               # exception list ("" = flag every emoji/icon)
 
 [tool.sweep.rules.imports-ban-local]

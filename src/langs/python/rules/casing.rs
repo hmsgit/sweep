@@ -28,12 +28,15 @@ impl Rule for CasingEnumKey {
             return Vec::new();
         };
         let mut diagnostics = Vec::new();
-        for_each_enum_member(ctx, &mut |name_node, name, _value| {
+        for_each_enum_member(ctx, &mut |class, name_node, name, _value| {
             if !config.case.matches(name) {
                 diagnostics.push(
                     Diagnostic::new(
                         self.name(),
-                        format!("enum member `{name}` should be {}", config.case.describe()),
+                        format!(
+                            "enum member `{class}.{name}` key should be {}",
+                            config.case.describe()
+                        ),
                         name_node.start_byte(),
                         name_node.end_byte(),
                     )
@@ -62,7 +65,7 @@ impl Rule for CasingEnumVal {
             return Vec::new();
         };
         let mut diagnostics = Vec::new();
-        for_each_enum_member(ctx, &mut |_name_node, name, value| {
+        for_each_enum_member(ctx, &mut |class, _name_node, name, value| {
             let Some(value) = value else { return };
             let Some(content) = plain_string_content(value, ctx.source) else {
                 return;
@@ -72,7 +75,7 @@ impl Rule for CasingEnumVal {
                     Diagnostic::new(
                         self.name(),
                         format!(
-                            "value of enum member `{name}` should be {}",
+                            "enum member `{class}.{name}` value (\"{content}\") should be {}",
                             config.case.describe()
                         ),
                         value.start_byte(),
@@ -160,15 +163,19 @@ impl Rule for CasingModuleConst {
     }
 }
 
-/// Visit every enum member assignment: (name node, name, value node).
-fn for_each_enum_member<'t>(
-    ctx: &FileContext<'t>,
-    f: &mut dyn FnMut(Node<'t>, &str, Option<Node<'t>>),
-) {
+/// Visit every enum member assignment:
+/// (class name, member name node, member name, value node).
+type MemberVisitor<'a, 't> = dyn FnMut(&str, Node<'t>, &str, Option<Node<'t>>) + 'a;
+
+fn for_each_enum_member<'t>(ctx: &FileContext<'t>, f: &mut MemberVisitor<'_, 't>) {
     walk_tree(ctx.root(), &mut |node| {
         if node.kind() != "class_definition" || !is_enum_class(node, ctx.source) {
             return;
         }
+        let class = node
+            .child_by_field_name("name")
+            .map(|n| &ctx.source[n.byte_range()])
+            .unwrap_or("<enum>");
         let Some(body) = node.child_by_field_name("body") else {
             return;
         };
@@ -194,7 +201,7 @@ fn for_each_enum_member<'t>(
             if name.starts_with('_') {
                 continue;
             }
-            f(left, name, assignment.child_by_field_name("right"));
+            f(class, left, name, assignment.child_by_field_name("right"));
         }
     });
 }

@@ -9,19 +9,19 @@ use crate::langs::python::docstring::{content_range, docstrings};
 /// in the configured allowed set. Occurrences in comments and
 /// docstrings are deleted under --fix; inside other string literals
 /// they are warn-only, since deleting could change runtime behavior.
-pub struct NoEmoji;
+pub struct AllowedEmojis;
 
-impl Rule for NoEmoji {
+impl Rule for AllowedEmojis {
     fn name(&self) -> &'static str {
-        "no-emoji"
+        "allowed-emojis"
     }
 
     fn explain(&self) -> &'static str {
-        "no emoji or unicode icons in code (exceptions via allowed-emojis)"
+        "no emoji or unicode icons in code beyond the allowed-emojis set"
     }
 
     fn check(&self, ctx: &FileContext) -> Vec<Diagnostic> {
-        let level = ctx.config.no_emoji_level;
+        let level = ctx.config.allowed_emojis_level;
         let Some(severity) = level.severity() else {
             return Vec::new();
         };
@@ -50,7 +50,7 @@ impl Rule for NoEmoji {
 
             let mut diagnostic = Diagnostic::new(
                 self.name(),
-                format!("emoji/icon character `{c}`"),
+                format!("emoji/icon character `{c}` is not allowed"),
                 offset,
                 end,
             )

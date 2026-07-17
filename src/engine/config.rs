@@ -143,7 +143,7 @@ pub struct Config {
     pub casing_enum_key: CasingConfig,
     pub casing_enum_val: CasingConfig,
     pub casing_module_const: CasingConfig,
-    pub no_emoji_level: Level,
+    pub allowed_emojis_level: Level,
     pub allowed_emojis: Vec<char>,
 }
 
@@ -165,7 +165,7 @@ impl Default for Config {
             casing_enum_key: CasingConfig::default(),
             casing_enum_val: CasingConfig::default(),
             casing_module_const: CasingConfig::default(),
-            no_emoji_level: Level::Off,
+            allowed_emojis_level: Level::Off,
             allowed_emojis: Vec::new(),
         }
     }
@@ -603,7 +603,7 @@ impl Config {
             casing_enum_key: raw.rules.casing_enum_key.resolve(path)?,
             casing_enum_val: raw.rules.casing_enum_val.resolve(path)?,
             casing_module_const: raw.rules.casing_module_const.resolve(path)?,
-            no_emoji_level: if raw.rules.allowed_emojis.is_some() {
+            allowed_emojis_level: if raw.rules.allowed_emojis.is_some() {
                 Level::Warn
             } else {
                 Level::Off
@@ -734,7 +734,7 @@ level = "warn"
         assert_eq!(c.dict_style.level, Level::Off);
         assert_eq!(c.annotate_module_const_level, Level::Off);
         assert_eq!(c.casing_enum_key.level, Level::Off);
-        assert_eq!(c.no_emoji_level, Level::Off);
+        assert_eq!(c.allowed_emojis_level, Level::Off);
 
         let text = r#"
 [tool.sweep.rules]
@@ -751,7 +751,7 @@ casing-module-const = { level = "error", case = "upper" }
         assert_eq!(c.casing_module_const.case, Case::Upper);
         assert_eq!(c.casing_enum_val.level, Level::Off);
         // allowed-emojis presence is what enables no-emoji.
-        assert_eq!(c.no_emoji_level, Level::Warn);
+        assert_eq!(c.allowed_emojis_level, Level::Warn);
         assert_eq!(c.allowed_emojis, vec!['→', '✓']);
 
         // Empty string: enabled, no exceptions.
@@ -760,7 +760,7 @@ casing-module-const = { level = "error", case = "upper" }
             Path::new("pyproject.toml"),
         )
         .unwrap();
-        assert_eq!(c.no_emoji_level, Level::Warn);
+        assert_eq!(c.allowed_emojis_level, Level::Warn);
         assert!(c.allowed_emojis.is_empty());
     }
 
