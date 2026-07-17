@@ -4,6 +4,13 @@ Fast, deterministic cleanup passes for pre-commit, written in Rust on top
 of [tree-sitter](https://tree-sitter.github.io/). Python first; the engine
 is language-agnostic so more grammars can be added cheaply.
 
+sweep enforces the conventions ruff doesn't — one docstring style with
+full conversion, justified-or-hoisted imports, house naming rules — and
+**declutters LLM/GPT-generated code**: narration comments that restate
+the code, docstrings that echo the function name, parameter docs that
+drifted from the signature, type declarations duplicated between
+docstring and annotations, stray emoji.
+
 Each rule is one independent pass: it parses the file once, reports
 diagnostics, and (optionally) carries a fix. `--fix` applies all
 non-conflicting fixes and re-checks until nothing is left to do.
