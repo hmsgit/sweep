@@ -107,10 +107,13 @@ impl Suppressions {
     }
 
     /// Filter suppressed diagnostics and report unfulfilled expects.
+    /// `active_rules` are the rules that actually ran: an expect for a
+    /// rule excluded via --select/--ignore is not reported as stale.
     pub fn apply(
         &self,
         mut diagnostics: Vec<Diagnostic>,
         line_index: &LineIndex,
+        active_rules: &[&str],
     ) -> Vec<Diagnostic> {
         let mut hits = vec![false; self.expects.len()];
         diagnostics.retain(|d| {
@@ -140,7 +143,13 @@ impl Suppressions {
         });
 
         for (expect, hit) in self.expects.iter().zip(hits) {
-            if !hit {
+            let relevant = match &expect.filter {
+                RuleFilter::All => true,
+                RuleFilter::Named(rules) => {
+                    rules.iter().any(|r| active_rules.contains(&r.as_str()))
+                }
+            };
+            if !hit && relevant {
                 diagnostics.push(
                     Diagnostic::new(
                         "expect",

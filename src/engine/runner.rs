@@ -69,7 +69,8 @@ pub fn check_file(
         };
 
         let diagnostics: Vec<Diagnostic> = rules.iter().flat_map(|rule| rule.check(&ctx)).collect();
-        let mut diagnostics = suppressions.apply(diagnostics, &line_index);
+        let active_rules: Vec<&str> = rules.iter().map(|r| r.name()).collect();
+        let mut diagnostics = suppressions.apply(diagnostics, &line_index, &active_rules);
         diagnostics.sort_by_key(|d| (d.start, d.end));
 
         let has_fixes = diagnostics.iter().any(|d| d.fix.is_some());

@@ -292,60 +292,132 @@ clean commits stay quiet.
 
 ## Suppressing findings
 
-A directive comment on the flagged line or the line directly above:
+Suppression is half the tool: a convention checker is only trustworthy
+when its exceptions are explicit, scoped, and reviewed like code. Every
+sweep directive therefore names its scope, takes an optional rule list,
+and carries a free-text reason for the next reader.
+
+Quick reference:
+
+| directive | scope | placement | stale form |
+| --- | --- | --- | --- |
+| `# sweep: ignore[rules] reason` | one line | on the line, or the line above it | silent |
+| `# sweep: ignore-block[rules] reason` | one `def`/`class` | on the header line, or the line above it | silent |
+| `# sweep: ignore-file[rules] reason` | whole file | file header, before the first statement | silent |
+| `# sweep: expect[rules] reason` | one line | on the line, or the line above it | **`error[expect]`** |
+| `# sweep: avoid-cycle reason` | one line | on the import, or the line above it | silent |
+| `# noqa` / `# type: ignore` (bare) | one line | on the line only | silent |
+
+Everywhere `[rules]` appears it is optional — omitting it silences
+every rule for that scope; `[rule-a, rule-b]` limits the directive to
+those rules. Anything after the bracket (or the keyword) is the reason.
+
+### ignore vs expect — which one?
+
+Both suppress identically when a finding exists. They differ in what
+happens when the finding *stops existing*:
+
+- **`ignore`** stays silent forever. Use it for **permanent policy
+  exceptions** — code that is deliberately and durably exempt:
+  cycle-breaking imports, wire-format enum values, vendored code.
+- **`expect`** turns into `error[expect] expected finding was not
+  produced; remove this directive`. Use it for **temporary overrides**
+  — "sweep is right, but not yet": migrations in progress, TODOs with
+  teeth. When the refactor lands (or a sweep improvement changes what
+  fires), the directive cleans itself up instead of rotting in place.
+  This is `@ts-expect-error` semantics; the resulting error gates the
+  run like any other error-level finding.
+
+Rule of thumb: if you can imagine deleting the directive one day,
+`expect`. If you can't, `ignore` — with a reason explaining why.
+
+### Line scope
+
+`ignore`, `expect` and `avoid-cycle` cover the line they sit on, or —
+when written as a standalone comment — the line directly below:
 
 ```python
 def build():
     from app.models import Model  # sweep: avoid-cycle models imports builders
 
-def load(x: "Config") -> None:  # sweep: ignore[string-annotations] runtime introspection
-    ...
-
-# sweep: ignore
-anything_on_this_line_is_exempt()
-```
-
-Scope is explicit in the directive name — placement never silently
-changes what a directive covers:
-
-- `# sweep: ignore[rules] <reason>` — this line (or the line below the
-  comment). Bare `ignore` silences every rule.
-- `# sweep: ignore-block[rules]` — on a `def`/`class` header line, or
-  the line above it: everything inside that definition, decorators and
-  nested definitions included.
-- `# sweep: ignore-file[rules]` — in the file header region (comments
-  before the first real statement): the whole file.
-- `# sweep: expect[rules]` — suppresses like `ignore`, but it is an
-  **error when no matching finding was actually suppressed**. Use it
-  for temporary, self-cleaning overrides: when a refactor makes the
-  finding disappear, the stale directive announces itself instead of
-  rotting. (`ignore` is for permanent policy exceptions.)
-- `# sweep: avoid-cycle <reason>` — shorthand for
-  `ignore[imports-ban-local]` with cycle-avoidance as the stated reason.
-
-```python
-# sweep: ignore-file[docstring-start]        ← top of file
-"""Legacy module, old docstring shape."""
-
-
-class Flags(Enum):  # sweep: ignore-block[casing-enum-key] wire format
-    RED = 1
-
-
 def load(x: "Config") -> None:  # sweep: expect[string-annotations] until py310 drop
     ...
+
+# sweep: ignore[dict-style] kwargs collide with a keyword here
+legacy = {"class": "warrior"}
 ```
 
-A misplaced `ignore-file` (outside the header) or `ignore-block` (not
-attached to a definition) degrades to plain line scope. Reasons are
-free text and encouraged; they are for the next reader, not for the
-tool.
+`avoid-cycle` is sugar for `ignore[imports-ban-local]` with the reason
+built into the name — it exists because cycle-breaking is by far the
+most common justified local import.
 
-Blanket markers from other tools are honored too: a bare `# noqa` or a
-bare `# type: ignore` on a line suppresses sweep findings on that line
-(same-line only, matching flake8/mypy semantics — no line-above reach).
-Code-carrying forms (`# noqa: F401`, `# type: ignore[union-attr]`) name
-that tool's rules, say nothing about sweep, and don't suppress.
+### Block scope
+
+`ignore-block` attaches to the nearest `def`/`class` whose header is on
+the same line or the line below the comment, and covers **everything
+inside that definition**: the signature, decorators, docstring, nested
+functions and classes.
+
+```python
+class Flags(Enum):  # sweep: ignore-block[casing-enum-key, casing-enum-val] wire format
+    RED = "RED"
+    GREEN = "GREEN"
+
+# sweep: ignore-block — the whole vendored helper, all rules
+@lru_cache
+def vendored_thing(x):
+    import weird_dep
+    d = {"a": 1}
+    ...
+```
+
+For decorated definitions the block starts at the first decorator, so
+findings in decorator expressions are covered too.
+
+### File scope
+
+`ignore-file` is only honored in the **file header region** — comments
+before the first real statement (the module docstring doesn't end the
+header). Convention: first line of the file.
+
+```python
+# sweep: ignore-file[docstring-style, docstring-start] generated, do not edit
+"""Legacy module with pre-convention docstrings."""
+```
+
+The header restriction is deliberate: a whole-file kill switch should
+be visible at the top of the file, not buried at line 400 where a
+copy-paste can smuggle it in.
+
+### Placement is strict, degradation is safe
+
+Scope comes from the directive **name**, never from position — so a
+plain `ignore` next to a `def` header covers only that line, and you
+can still suppress a single signature finding without exempting the
+body. In the other direction, a **misplaced** scoped directive
+(`ignore-file` outside the header, `ignore-block` not attached to a
+definition) degrades to plain line scope rather than silently widening.
+
+### Interactions worth knowing
+
+- **Suppressed findings are not fixed.** `--fix` only applies fixes of
+  reported findings, so an `ignore`/`expect` also shields the code from
+  rewriting — suppressing `docstring-style` on a def keeps its
+  docstring byte-for-byte.
+- **`error[expect]` is a real error**: it fails the run (exit 1) and
+  has no autofix — deleting the directive is a human decision. It is
+  only skipped when the expected rule didn't run at all (excluded via
+  `--select`/`--ignore`), so partial runs don't cry stale. A rule
+  turned `off` in config still counts: an expect for a disabled rule
+  is stale by definition.
+- **Foreign markers**: a bare `# noqa` or bare `# type: ignore` on a
+  line also suppresses sweep there — those markers mean "tooling: leave
+  this line alone" and sweep respects that. They are same-line only
+  (flake8/mypy semantics) and never block- or file-scoped. Code-carrying
+  forms (`# noqa: F401`, `# type: ignore[union-attr]`) name *that*
+  tool's rules and don't affect sweep at all.
+- **Chained comments** parse per segment:
+  `# type: ignore  # sweep: avoid-cycle reason` applies both.
 
 ## Configuration
 

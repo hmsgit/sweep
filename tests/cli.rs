@@ -235,6 +235,27 @@ fn concise_format_is_one_line_per_finding() {
 }
 
 #[test]
+fn stale_expect_errors_unless_rule_deselected() {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/scoped_suppressions");
+    let temp = tempfile::tempdir().unwrap();
+    setup(&fixture, temp.path());
+
+    // Full run: the stale expect[imports-ban-local] is an error.
+    let output = run_sweep(temp.path(), &["check", "."]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("error[expect]"), "stdout:\n{stdout}");
+    assert_eq!(output.status.code(), Some(1));
+
+    // When the expected rule didn't run, the expect is not stale.
+    let output = run_sweep(temp.path(), &["check", ".", "--select", "docstring-style"]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("error[expect]"),
+        "expect must not fire for deselected rules:\n{stdout}"
+    );
+}
+
+#[test]
 fn line_length_defaults_to_info_only() {
     // No config: limit 79, level info — the long docstring line is
     // reported as info, never fixed, and does not fail the run.
