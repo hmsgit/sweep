@@ -393,6 +393,22 @@ legacy = {"class": "warrior"}
 built into the name — it exists because cycle-breaking is by far the
 most common justified local import.
 
+**Long directives and line length**: a trailing directive with a rule
+list and a reason can push the code line over your formatter/linter
+limit (ruff's `E501` has no directive exemption). The sweep-native
+answer is the line-above form — every sweep directive supports it, so
+move the directive up instead of fighting the limit:
+
+```python
+# sweep: ignore[string-annotations, docstring-sync] loaded via plugin registry, hints resolve at runtime
+def load(x: "Config") -> None:
+    ...
+```
+
+(Foreign markers — `# type: ignore`, `# noqa` — are same-line by their
+tools' semantics, so this escape only applies to sweep's own
+directives.)
+
 ### Block scope
 
 `ignore-block` attaches to the nearest `def`/`class` whose header is on
