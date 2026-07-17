@@ -86,6 +86,10 @@ See [Extending](#extending) for how to add a rule or a language.
 | `casing-enum-val` | enum string values not in the configured case | warn-only (changes serialized data) |
 | `casing-module-const` | module constant names not in the configured case | warn-only (cross-file rename) |
 | `allowed-emojis` | any emoji/unicode icon (pictographs, ✓/✗, arrows, shapes) not in the allowed set — enabled by setting `allowed-emojis` | deletes in comments/docstrings; warn-only inside strings |
+| `comments-no-echo` | narration comments that restate the adjacent code (`# create the payload`) | deletes the comment |
+| `docstring-sync` | documented parameters drifted from the signature (stale/missing entries) | rebuilds the param section in signature order |
+| `docstring-no-echo` | docstrings that only restate the function name (`def send_email(): """Send email."""`) | deletes the docstring |
+| `docstring-no-type-echo` | `:type x:` / `x (int):` entries identical to the signature annotation | drops the echoed types |
 
 ### imports-ban-local
 
@@ -243,6 +247,10 @@ casing-enum-key = "lower"        # lower | upper (shorthand enables at warn)
 casing-enum-val = "lower"
 casing-module-const = "lower"
 allowed-emojis = ""              # presence enables the rule; "" = no exceptions
+comments-no-echo = "warn"
+docstring-sync = "warn"
+docstring-no-echo = "warn"
+docstring-no-type-echo = "warn"
 ```
 
 Notes:
@@ -262,6 +270,33 @@ Notes:
   from module state and are never flagged.
 - Casing rules take a table form too:
   `casing-module-const = { level = "error", case = "upper" }`.
+**LLM-noise rules** — the four at the bottom target artifacts that
+LLM-generated code leaves behind:
+
+- `comments-no-echo` flags a comment when every content word either
+  appears among the adjacent code line's identifier tokens or is a
+  generic narration verb (`initialize`, `loop`, `call`, …), with at
+  least one real token match. `# create the payload` above
+  `payload = create_payload(...)` goes; `# deliver with retries because
+  upstream flakes` stays — it says *why*. Works for standalone comments
+  (covering the line below) and trailing comments. Shebangs, encoding
+  cookies, URLs and directives are exempt. Heuristic by nature: run it
+  at `warn` and review the first `--fix` diff.
+- `docstring-sync` only fires when the docstring documents parameters
+  at all — whether to document is a style choice, documenting the
+  *wrong* ones is drift. Stale entries (renamed/removed params) and
+  missing ones are reported; the fix rebuilds the section in signature
+  order, keeping existing descriptions and stubbing missing entries.
+- `docstring-no-echo` compares the docstring's words (minus glue words)
+  against the function's name and parameter tokens; if nothing new is
+  said and there are no sections, the docstring documents nothing.
+- `docstring-no-type-echo` drops docstring types only when they are
+  **identical** (modulo whitespace) to the signature annotation — a
+  richer prose type like `mapping of str to int` next to
+  `dict[str, int]` is deliberate documentation and survives.
+
+Other notes:
+
 - `allowed-emojis` has a single knob: `allowed-emojis` under `[tool.sweep.rules]`.
   Its presence enables the rule (at warn); its value is the exception
   list (`""` = flag every emoji/icon). Detected: emoji blocks, dingbats

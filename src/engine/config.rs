@@ -145,6 +145,10 @@ pub struct Config {
     pub casing_module_const: CasingConfig,
     pub allowed_emojis_level: Level,
     pub allowed_emojis: Vec<char>,
+    pub comments_no_echo_level: Level,
+    pub docstring_sync_level: Level,
+    pub docstring_no_echo_level: Level,
+    pub docstring_no_type_echo_level: Level,
 }
 
 impl Default for Config {
@@ -167,6 +171,10 @@ impl Default for Config {
             casing_module_const: CasingConfig::default(),
             allowed_emojis_level: Level::Off,
             allowed_emojis: Vec::new(),
+            comments_no_echo_level: Level::Off,
+            docstring_sync_level: Level::Off,
+            docstring_no_echo_level: Level::Off,
+            docstring_no_type_echo_level: Level::Off,
         }
     }
 }
@@ -197,6 +205,10 @@ struct RawRules {
     /// The one knob for the no-emoji rule: its presence enables the
     /// rule (at warn), its value is the exception list ("" = none).
     allowed_emojis: Option<String>,
+    comments_no_echo: RawRuleEntry,
+    docstring_sync: RawRuleEntry,
+    docstring_no_echo: RawRuleEntry,
+    docstring_no_type_echo: RawRuleEntry,
 }
 
 /// docstring-style accepts `docstring-style = "rest"` / `"google"` /
@@ -615,6 +627,26 @@ impl Config {
                 .unwrap_or("")
                 .chars()
                 .collect(),
+            comments_no_echo_level: raw
+                .rules
+                .comments_no_echo
+                .level()
+                .unwrap_or(defaults.comments_no_echo_level),
+            docstring_sync_level: raw
+                .rules
+                .docstring_sync
+                .level()
+                .unwrap_or(defaults.docstring_sync_level),
+            docstring_no_echo_level: raw
+                .rules
+                .docstring_no_echo
+                .level()
+                .unwrap_or(defaults.docstring_no_echo_level),
+            docstring_no_type_echo_level: raw
+                .rules
+                .docstring_no_type_echo
+                .level()
+                .unwrap_or(defaults.docstring_no_type_echo_level),
         };
 
         if is_pyproject {

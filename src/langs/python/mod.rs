@@ -86,6 +86,41 @@ pub fn is_typing_special_assignment(assignment: Node, source: &str) -> bool {
     )
 }
 
+/// Parameter names and annotation texts of a function definition, in
+/// signature order. Splat parameters (`*args`, `**kwargs`) appear by
+/// their bare name; bare `*` and `/` separators are skipped.
+pub fn function_params(func: Node, source: &str) -> Vec<(String, Option<String>)> {
+    let mut out = Vec::new();
+    let Some(params) = func.child_by_field_name("parameters") else {
+        return out;
+    };
+    let mut cursor = params.walk();
+    for child in params.named_children(&mut cursor) {
+        match child.kind() {
+            "identifier" => out.push((source[child.byte_range()].to_string(), None)),
+            "typed_parameter" | "typed_default_parameter" | "default_parameter" => {
+                let name = child
+                    .child_by_field_name("name")
+                    .or_else(|| child.named_child(0));
+                let Some(name) = name.filter(|n| n.kind() == "identifier") else {
+                    continue;
+                };
+                let ty = child
+                    .child_by_field_name("type")
+                    .map(|t| source[t.byte_range()].to_string());
+                out.push((source[name.byte_range()].to_string(), ty));
+            }
+            "list_splat_pattern" | "dictionary_splat_pattern" => {
+                if let Some(name) = child.named_child(0) {
+                    out.push((source[name.byte_range()].to_string(), None));
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 /// True when the module already has `from __future__ import annotations`.
 pub fn has_future_annotations(root: Node, source: &str) -> bool {
     let mut cursor = root.walk();

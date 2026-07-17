@@ -169,6 +169,38 @@ pub fn rewrap(
     Some(render::render(&ir, style, Some(width), first_line_penalty))
 }
 
+/// Parse a docstring into the style-neutral IR (for rules that inspect
+/// or rebuild sections).
+pub fn parse_ir(content: &str, style: DocStyle) -> Option<DocIr> {
+    parse::parse(content, style)
+}
+
+/// Render an IR back to dedented docstring content, preserving the
+/// author's line wrapping.
+pub fn render_ir(ir: &DocIr, style: DocStyle) -> String {
+    render::render(ir, style, None, 0)
+}
+
+/// Function docstrings with their owning function definition.
+pub fn function_docstrings(root: Node) -> Vec<(Node, Node)> {
+    let mut found = Vec::new();
+    walk_tree(root, &mut |node| {
+        if node.kind() != "function_definition" {
+            return;
+        }
+        let Some(body) = node.child_by_field_name("body") else {
+            return;
+        };
+        let Some(first) = body.named_child(0) else {
+            return;
+        };
+        if let Some(doc) = docstring_of_statement(first) {
+            found.push((node, doc));
+        }
+    });
+    found
+}
+
 /// Every docstring in a parsed file: module, class and function bodies.
 pub fn docstrings(root: Node) -> Vec<Node> {
     let mut found = Vec::new();

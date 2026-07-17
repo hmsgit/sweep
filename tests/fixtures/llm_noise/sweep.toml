@@ -1,0 +1,6 @@
+[rules]
+docstring-style = "rest"
+comments-no-echo = "warn"
+docstring-sync = "warn"
+docstring-no-echo = "warn"
+docstring-no-type-echo = "warn"
