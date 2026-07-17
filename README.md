@@ -486,46 +486,66 @@ beats `pyproject.toml` at the same level). This makes monorepos work
 out of the box — pre-commit config at the repo root, one
 `app/*/pyproject.toml` per app, and every file is judged by its own
 app's settings. `--config PATH` overrides discovery for all files.
-Everything is optional:
+Everything is optional, and every rule is one line — a level
+(`off | info | warn | error`) or the rule's value shorthand:
 
 ```toml
 [tool.sweep]
-exclude = ["migrations/"]     # path substrings to skip when walking directories
-line-length = 79              # falls back to [tool.ruff].line-length, then 79
+exclude = ["migrations/"]        # path substrings to skip when walking directories
+line-length = 100                # falls back to [tool.ruff].line-length, then 88
 
 [tool.sweep.rules]
-docstring-style = "rest"      # rest (default) | google | numpy — sets the
-                              # convention; table form also sets the level:
-                              # docstring-style = { level = "warn", style = "google" }
-# allowed-emojis = "→✓"       # set to enable the rule; the value is the
-                              # exception list ("" = flag every emoji/icon)
-
-[tool.sweep.rules.imports-ban-local]
-level = "error"               # off | info | warn | error (default: error)
-known-first-party = ["mypkg"]
-
-[tool.sweep.rules.docstring-style]
-level = "error"               # default: error
-
-[tool.sweep.rules.docstring-start]
-level = "error"               # default: error
-
-[tool.sweep.rules.string-annotations]
-level = "error"               # default: error
-
-[tool.sweep.rules.docstring-line-length]
-level = "info"                # default: info — report only; warn/error enable re-flow
+docstring-style = "rest"         # convention shorthand; level stays at its default
+imports-ban-local = "warn"
+docstring-start = "warn"
+string-annotations = "warn"
+docstring-line-length = "warn"   # warn/error also enable prose re-flow under --fix
+dict-style = "func"              # form shorthand: literal | function/func
+annotate-module-const = "warn"
+casing-enum-key = "lower"        # case shorthand: lower | upper
+casing-enum-val = "lower"
+casing-module-const = "lower"
+allowed-emojis = "→✓"            # presence enables; value = allowed characters
+comments-no-echo = "warn"
+docstring-sync = "warn"
+docstring-no-echo = "warn"
+docstring-no-type-echo = "warn"
 ```
 
-When a rule needs nothing but a level, the bare shorthand keeps it to
-one line each:
+When you need the level *and* a rule option at once, send a block —
+inline table or section, same thing:
 
 ```toml
 [tool.sweep.rules]
-docstring-style = "warn"
-imports-ban-local = "warn"
-string-annotations = "warn"
+docstring-style = { level = "warn", style = "google" }
+casing-module-const = { level = "error", case = "upper" }
+
+[tool.sweep.rules.imports-ban-local]
+level = "error"
+known-first-party = ["mypkg"]
 ```
+
+### What can be configured
+
+| key | one-line value | block keys | default |
+| --- | --- | --- | --- |
+| `exclude` (top level) | list of path substrings | — | `[]` |
+| `line-length` (top level) | number | — | ruff's `line-length`, else 88 (ruff/black's default) |
+| `imports-ban-local` | level | `level`, `known-first-party` | `error` |
+| `docstring-style` | level or `rest`\|`google`\|`numpy` | `level`, `style` | `error`, `rest` |
+| `docstring-start` | level | `level` | `error` |
+| `string-annotations` | level | `level` | `error` |
+| `docstring-line-length` | level | `level` | `info` |
+| `dict-style` | level or `literal`\|`function`\|`func` | `level`, `style` | `off`, `function` |
+| `annotate-module-const` | level | `level` | `off` |
+| `casing-enum-key` / `casing-enum-val` / `casing-module-const` | level or `lower`\|`upper` | `level`, `case` | `off`, `lower` |
+| `allowed-emojis` | string of allowed characters (presence enables at warn) | — | absent = off |
+| `comments-no-echo`, `docstring-sync`, `docstring-no-echo`, `docstring-no-type-echo` | level | `level` | `off` |
+
+Value shorthands (`"rest"`, `"lower"`, `"literal"`) enable opt-in rules
+at `warn`; on `docstring-style`, which is on by default, the shorthand
+keeps the default `error` level. See
+[Severity levels](#severity-levels) for what each level does.
 
 Values discovered automatically from `pyproject.toml`, so most projects
 need no `[tool.sweep]` section at all:
@@ -533,8 +553,6 @@ need no `[tool.sweep]` section at all:
 - **first-party packages**: `[project].name`, `[tool.poetry].name`,
   `[tool.ruff.lint.isort].known-first-party`, `[tool.isort].known_first_party`;
 - **line length**: `[tool.ruff].line-length`.
-
-See [Severity levels](#severity-levels) for what each level does.
 
 ## CLI reference
 

@@ -7,7 +7,7 @@ use crate::langs::python::docstring::{
 use crate::langs::python::line_start;
 
 /// Reports docstring lines that exceed the configured line length
-/// (default 79, or ruff's line-length when set). By default this only
+/// (default 88 — ruff's default — or ruff's line-length when set). By default this only
 /// informs (level = info); at warn/error --fix re-flows the docstring's
 /// prose to fit. Non-prose content (bullets, doctests, directives) is
 /// never re-flowed.

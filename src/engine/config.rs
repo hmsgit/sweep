@@ -125,7 +125,9 @@ impl Default for CasingConfig {
     }
 }
 
-pub const DEFAULT_LINE_LENGTH: usize = 79;
+/// Matches ruff/black's default, so an unconfigured repo gets the
+/// same limit from sweep and ruff.
+pub const DEFAULT_LINE_LENGTH: usize = 88;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -567,7 +569,7 @@ impl Config {
             None => RawSweep::default(),
         };
 
-        // Line length: sweep's own setting wins, then ruff's, then 79.
+        // Line length: sweep's own setting wins, then ruff's, then 88.
         let ruff_line_length = doc
             .get("tool")
             .and_then(|t| t.get("ruff"))

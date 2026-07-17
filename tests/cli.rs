@@ -257,7 +257,7 @@ fn stale_expect_errors_unless_rule_deselected() {
 
 #[test]
 fn line_length_defaults_to_info_only() {
-    // No config: limit 79, level info — the long docstring line is
+    // No config: limit 88 (ruff's default), level info — the long docstring line is
     // reported as info, never fixed, and does not fail the run.
     let temp = tempfile::tempdir().unwrap();
     std::fs::write(temp.path().join("sweep.toml"), "").unwrap();
@@ -268,7 +268,7 @@ fn line_length_defaults_to_info_only() {
     let output = run_sweep(temp.path(), &["check", ".", "--fix"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("info[docstring-line-length]") && stdout.contains("(79 allowed)"),
+        stdout.contains("info[docstring-line-length]") && stdout.contains("(88 allowed)"),
         "stdout:\n{stdout}"
     );
     assert!(!stdout.contains("[*]"), "stdout:\n{stdout}");
