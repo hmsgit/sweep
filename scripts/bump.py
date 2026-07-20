@@ -14,6 +14,7 @@ Usage:
     bump.py --beta          0.1.0-beta.1 -> 0.1.0-beta.2
     bump.py --rc            0.1.0-beta.2 -> 0.1.0-rc.1
     bump.py                 0.1.0-rc.1   -> 0.1.0         (finalize)
+    bump.py patch           0.1.0-beta.4 -> 0.1.0         (finalize too)
     bump.py patch           0.1.0        -> 0.1.1
     bump.py minor --beta    0.1.1        -> 0.2.0-beta.1
 
@@ -53,7 +54,12 @@ def compute(version: str, level: str | None, pre: str | None) -> str:
     elif level == "minor":
         minor, patch, cur_pre = minor + 1, 0, None
     elif level == "patch":
-        patch, cur_pre = patch + 1, None
+        # A pre-release's release version IS its base: `patch` from
+        # 0.1.0-beta.4 finalizes to 0.1.0 rather than skipping to
+        # 0.1.1 (cargo-release / poetry convention).
+        if cur_pre is None:
+            patch += 1
+        cur_pre = None
 
     base = f"{major}.{minor}.{patch}"
     if pre is None:
