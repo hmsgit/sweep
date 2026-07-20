@@ -1,19 +1,19 @@
 name: ci
 
+# Runs only on release tags (alongside the release build) and manual
+# dispatch — pre-commit's cargo fmt/clippy hooks plus local `cargo
+# test` cover day-to-day pushes without spending Actions minutes.
 on:
   push:
-    branches: [master]
-  pull_request:
+    tags: ["v*"]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
