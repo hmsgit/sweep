@@ -29,6 +29,13 @@ impl RuleFilter {
 /// - `# sweep: ignore[rules] reason` — this line or the line below.
 /// - `# sweep: ignore-block[rules]` — on a def/class header line (or
 ///   the line above it): everything inside that definition.
+/// - `# sweep: ignore-start[rules] reason` … `# sweep: ignore-end` —
+///   everything between the pair, both lines included. A bare
+///   ignore-end closes the most recent open start; ignore-end[rules]
+///   closes the most recent start with the same rule list, so regions
+///   for different rules may overlap. An unclosed start suppresses to
+///   the end of the file but is itself an error, as is an ignore-end
+///   with no matching start (self-cleaning, like expect).
 /// - `# sweep: ignore-file[rules]` — in the file header region (before
 ///   the first real statement): the whole file.
 /// - `# sweep: expect[rules]` — like ignore, but it is an error when
@@ -42,9 +49,20 @@ impl RuleFilter {
 pub struct Suppressions {
     file: Vec<RuleFilter>,
     blocks: Vec<(Range<usize>, RuleFilter)>,
+    /// Line ranges from ignore-start/ignore-end pairs.
+    regions: Vec<(Range<usize>, RuleFilter)>,
     lines: HashMap<usize, Vec<RuleFilter>>,
     blanket_lines: HashSet<usize>,
     expects: Vec<Expect>,
+    /// Malformed region pairing, reported as error diagnostics.
+    region_errors: Vec<RegionError>,
+}
+
+#[derive(Debug)]
+struct RegionError {
+    rule: &'static str,
+    message: &'static str,
+    span: Range<usize>,
 }
 
 #[derive(Debug)]
@@ -59,6 +77,8 @@ enum Parsed {
     Ignore(RuleFilter),
     IgnoreFile(RuleFilter),
     IgnoreBlock(RuleFilter),
+    IgnoreStart(RuleFilter),
+    IgnoreEnd(RuleFilter),
     Expect(RuleFilter),
     Blanket,
 }
@@ -68,6 +88,8 @@ impl Suppressions {
         let header_end = file_header_end(root);
 
         let mut suppressions = Suppressions::default();
+        // Open ignore-start directives, awaiting their ignore-end.
+        let mut open_regions: Vec<(usize, Range<usize>, RuleFilter)> = Vec::new();
         walk_tree(root, &mut |node| {
             if node.kind() != "comment" {
                 return;
@@ -78,6 +100,31 @@ impl Suppressions {
                 match parsed {
                     Parsed::Ignore(filter) => {
                         suppressions.lines.entry(line).or_default().push(filter);
+                    }
+                    Parsed::IgnoreStart(filter) => {
+                        open_regions.push((line, node.byte_range(), filter));
+                    }
+                    Parsed::IgnoreEnd(filter) => {
+                        // A bare end closes the most recent open start; a
+                        // rule-listed end closes the most recent start with
+                        // the same list (regions may overlap).
+                        let matched = open_regions
+                            .iter()
+                            .rposition(|(_, _, open)| filter == RuleFilter::All || *open == filter);
+                        match matched {
+                            Some(i) => {
+                                let (start_line, _, open_filter) = open_regions.remove(i);
+                                suppressions
+                                    .regions
+                                    .push((start_line..line + 1, open_filter));
+                            }
+                            None => suppressions.region_errors.push(RegionError {
+                                rule: "ignore-end",
+                                message: "no matching `# sweep: ignore-start` above; \
+                                          remove this directive",
+                                span: node.byte_range(),
+                            }),
+                        }
                     }
                     Parsed::IgnoreFile(filter) => {
                         if node.start_byte() < header_end {
@@ -103,6 +150,16 @@ impl Suppressions {
                 }
             }
         });
+        for (start_line, span, filter) in open_regions {
+            // Still honor the author's intent (suppress to end of file)
+            // but demand the missing ignore-end.
+            suppressions.regions.push((start_line..usize::MAX, filter));
+            suppressions.region_errors.push(RegionError {
+                rule: "ignore-start",
+                message: "unclosed region; add `# sweep: ignore-end`",
+                span,
+            });
+        }
         suppressions
     }
 
@@ -135,12 +192,28 @@ impl Suppressions {
                     .blocks
                     .iter()
                     .any(|(range, f)| range.contains(&d.start) && f.matches(d.rule))
+                || self
+                    .regions
+                    .iter()
+                    .any(|(range, f)| range.contains(&line) && f.matches(d.rule))
                 || [line, line.saturating_sub(1)]
                     .iter()
                     .filter_map(|l| self.lines.get(l))
                     .flatten()
                     .any(|f| f.matches(d.rule)))
         });
+
+        for error in &self.region_errors {
+            diagnostics.push(
+                Diagnostic::new(
+                    error.rule,
+                    error.message.to_string(),
+                    error.span.start,
+                    error.span.end,
+                )
+                .with_severity(Severity::Error),
+            );
+        }
 
         for (expect, hit) in self.expects.iter().zip(hits) {
             let relevant = match &expect.filter {
@@ -262,6 +335,8 @@ fn parse_sweep_directive(segment: &str) -> Option<Parsed> {
         ("expect", Parsed::Expect as fn(RuleFilter) -> Parsed),
         ("ignore-file", Parsed::IgnoreFile),
         ("ignore-block", Parsed::IgnoreBlock),
+        ("ignore-start", Parsed::IgnoreStart),
+        ("ignore-end", Parsed::IgnoreEnd),
         ("ignore", Parsed::Ignore),
     ] {
         if let Some(filter) = parse_keyword(rest, keyword) {
@@ -321,6 +396,16 @@ mod tests {
         assert_eq!(
             directives("# sweep: ignore-block"),
             vec![Parsed::IgnoreBlock(RuleFilter::All)]
+        );
+        assert_eq!(
+            directives("# sweep: ignore-start[casing-enum-key] wire format"),
+            vec![Parsed::IgnoreStart(RuleFilter::Named(vec![
+                "casing-enum-key".into()
+            ]))]
+        );
+        assert_eq!(
+            directives("# sweep: ignore-end"),
+            vec![Parsed::IgnoreEnd(RuleFilter::All)]
         );
         assert_eq!(
             directives("# sweep: expect[string-annotations] pending"),

@@ -361,6 +361,7 @@ Quick reference:
 | --- | --- | --- | --- |
 | `# sweep: ignore[rules] reason` | one line | on the line, or the line above it | silent |
 | `# sweep: ignore-block[rules] reason` | one `def`/`class` | on the header line, or the line above it | silent |
+| `# sweep: ignore-start[rules] reason` … `# sweep: ignore-end` | every line between the pair | anywhere, on their own lines | **`error[ignore-start]`** / **`error[ignore-end]`** when unpaired |
 | `# sweep: ignore-file[rules] reason` | whole file | file header, before the first statement | silent |
 | `# sweep: expect[rules] reason` | one line | on the line, or the line above it | **`error[expect]`** |
 | `# sweep: avoid-cycle reason` | one line | on the import, or the line above it | silent |
@@ -447,6 +448,41 @@ def vendored_thing(x):
 
 For decorated definitions the block starts at the first decorator, so
 findings in decorator expressions are covered too.
+
+### Region scope
+
+`ignore-block` needs a single `def`/`class` to attach to. When the
+exception is a *stretch* of a file instead — several small constants,
+enums, or helpers declared together — fence it with a pair:
+
+```python
+# sweep: ignore-start[casing-module-const] generated protocol ids
+FOO_V1 = 17
+FOO_V2 = 18
+BAR_LEGACY = 3
+# sweep: ignore-end
+```
+
+Everything between the two directives is covered, both directive lines
+included. A bare `ignore-end` closes the most recent open
+`ignore-start`; an `ignore-end[rules]` closes the most recent start
+with the same rule list, so regions for different rules may overlap:
+
+```python
+# sweep: ignore-start[docstring-style] vendored
+# sweep: ignore-start[imports-ban-local] vendored
+...
+# sweep: ignore-end[docstring-style]
+...
+# sweep: ignore-end[imports-ban-local]
+```
+
+Regions are self-cleaning like `expect`: an `ignore-start` without its
+`ignore-end` still suppresses to the end of the file (the intent is
+clear) but reports `error[ignore-start]` until you close it — a fence
+that silently turns into a whole-file switch is exactly the kind of
+rot this tool exists to catch. An `ignore-end` with no open start
+reports `error[ignore-end]`.
 
 ### File scope
 

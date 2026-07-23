@@ -235,6 +235,51 @@ fn concise_format_is_one_line_per_finding() {
 }
 
 #[test]
+fn region_directives_suppress_and_self_clean() {
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::write(
+        temp.path().join("sweep.toml"),
+        "[rules]\ndocstring-style = \"rest\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        temp.path().join("input.py"),
+        r#""""
+Module docstring.
+"""
+
+# sweep: ignore-end
+
+
+# sweep: ignore-start[docstring-style] vendored
+
+
+def kept():
+    """
+    Kept.
+
+    Args:
+        source: upstream.
+    """
+    return None
+"#,
+    )
+    .unwrap();
+
+    let output = run_sweep(temp.path(), &["check", "."]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // The orphan end and the unclosed start are both errors...
+    assert!(stdout.contains("error[ignore-end]"), "stdout:\n{stdout}");
+    assert!(stdout.contains("error[ignore-start]"), "stdout:\n{stdout}");
+    // ...but the unclosed start still suppresses to the end of the file.
+    assert!(
+        !stdout.contains("error[docstring-style]"),
+        "region must suppress the docstring finding:\n{stdout}"
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
 fn stale_expect_errors_unless_rule_deselected() {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/scoped_suppressions");
     let temp = tempfile::tempdir().unwrap();

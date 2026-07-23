@@ -17,6 +17,35 @@ class Legacy(Enum):  # sweep: ignore-block[casing-enum-key] wire format
     GREEN = 2
 
 
+# sweep: ignore-start[docstring-style] vendored helpers
+def vendored_a():
+    """Kept in Google style.
+
+    Args:
+        source: upstream project.
+    """
+    return None
+
+
+def vendored_b():
+    """Also kept.
+
+    Args:
+        source: upstream project.
+    """
+    return None
+# sweep: ignore-end
+
+
+def converted(x):
+    """
+    Outside the region, so converted.
+
+    :param x: value.
+    """
+    return x
+
+
 def pending(x: "Legacy") -> None:  # sweep: expect[string-annotations] until refactor
     return None
 
