@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -176,6 +176,11 @@ pub struct Config {
     pub docstring_sync_level: Level,
     pub docstring_no_echo_level: Level,
     pub docstring_no_type_echo_level: Level,
+    /// Rule entries this sweep couldn't read. They don't abort parsing
+    /// (the other rules still run) but each is reported once per config
+    /// file as `error[config]` and fails the run — a silently disabled
+    /// rule must never hide behind a passing hook.
+    pub errors: Vec<String>,
 }
 
 impl Default for Config {
@@ -202,6 +207,7 @@ impl Default for Config {
             docstring_sync_level: Level::Off,
             docstring_no_echo_level: Level::Off,
             docstring_no_type_echo_level: Level::Off,
+            errors: Vec::new(),
         }
     }
 }
@@ -560,6 +566,48 @@ struct RawLevelOnly {
     level: Option<Level>,
 }
 
+/// Validate one `[tool.sweep.rules]` entry without applying it.
+/// `None` for a rule this sweep doesn't know; `Some(Err)` for a known
+/// rule whose value doesn't parse.
+fn check_rule_value(key: &str, value: &toml::Value, path: &Path) -> Option<Result<()>> {
+    fn parse<T: serde::de::DeserializeOwned>(value: &toml::Value) -> Result<T> {
+        value.clone().try_into().map_err(|e: toml::de::Error| {
+            // Untagged-enum mismatches name internal Rust types;
+            // "unsupported value" is all the reader can act on.
+            let message = e.message();
+            if message.contains("untagged enum") {
+                anyhow::anyhow!("unsupported value")
+            } else {
+                anyhow::anyhow!("{message}")
+            }
+        })
+    }
+
+    let result = match key {
+        "imports-ban-local" => parse::<RawImportsBanLocal>(value).map(|_| ()),
+        "docstring-style" => {
+            parse::<RawDocstringStyle>(value).and_then(|r| r.resolve(path).map(|_| ()))
+        }
+        "docstring-start" => {
+            parse::<RawDocstringStart>(value).and_then(|r| r.resolve(path).map(|_| ()))
+        }
+        "dict-style" => parse::<RawDictStyle>(value).and_then(|r| r.resolve(path).map(|_| ())),
+        "casing-enum-key" | "casing-enum-val" | "casing-module-const" => {
+            parse::<RawCasing>(value).and_then(|r| r.resolve(path).map(|_| ()))
+        }
+        "allowed-emojis" => parse::<String>(value).map(|_| ()),
+        "string-annotations"
+        | "docstring-line-length"
+        | "annotate-module-const"
+        | "comments-no-echo"
+        | "docstring-sync"
+        | "docstring-no-echo"
+        | "docstring-no-type-echo" => parse::<RawRuleEntry>(value).map(|_| ()),
+        _ => return None,
+    };
+    Some(result)
+}
+
 /// Resolves the effective config per checked file: the nearest
 /// `sweep.toml` or `pyproject.toml` in the file's parent directories
 /// wins, so a monorepo with pre-commit at the root and one
@@ -570,23 +618,62 @@ pub struct ConfigResolver {
     explicit: Option<Arc<Config>>,
     cache: Mutex<HashMap<PathBuf, Arc<Config>>>,
     fallback: Arc<Config>,
+    /// Config files whose errors were already printed, so parallel
+    /// checking doesn't repeat them per file.
+    reported: Mutex<HashSet<PathBuf>>,
+    /// How many config errors were emitted; the run fails when > 0 so
+    /// the report survives pre-commit's passing-hook output capture.
+    error_count: std::sync::atomic::AtomicUsize,
+}
+
+/// Config errors go to stderr unconditionally — unlike findings they
+/// must surface even on clean or piped runs.
+fn emit_config_errors(config: &Config) {
+    use std::io::IsTerminal;
+    let styled = std::io::stderr().is_terminal();
+    for error in &config.errors {
+        if styled {
+            eprintln!("\x1b[1;31msweep: error[config]:\x1b[0m {error}");
+        } else {
+            eprintln!("sweep: error[config]: {error}");
+        }
+    }
 }
 
 impl ConfigResolver {
     pub fn new(explicit: Option<&Path>) -> Result<Self> {
+        let resolver = Self {
+            explicit: None,
+            cache: Mutex::new(HashMap::new()),
+            fallback: Arc::new(Config::default()),
+            reported: Mutex::new(HashSet::new()),
+            error_count: std::sync::atomic::AtomicUsize::new(0),
+        };
         let explicit = match explicit {
             Some(path) => {
                 let text = std::fs::read_to_string(path)
                     .with_context(|| format!("reading config {}", path.display()))?;
-                Some(Arc::new(Config::from_toml(&text, path)?))
+                let config = Config::from_toml(&text, path)?;
+                resolver.record_errors(&config);
+                emit_config_errors(&config);
+                Some(Arc::new(config))
             }
             None => None,
         };
         Ok(Self {
             explicit,
-            cache: Mutex::new(HashMap::new()),
-            fallback: Arc::new(Config::default()),
+            ..resolver
         })
+    }
+
+    fn record_errors(&self, config: &Config) {
+        self.error_count
+            .fetch_add(config.errors.len(), std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Config errors emitted so far; > 0 must fail the run.
+    pub fn config_error_count(&self) -> usize {
+        self.error_count.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Effective config for a file or directory path.
@@ -625,7 +712,12 @@ impl ConfigResolver {
             if let Some(file) = config_file {
                 let text = std::fs::read_to_string(&file)
                     .with_context(|| format!("reading config {}", file.display()))?;
-                found = Some(Arc::new(Config::from_toml(&text, &file)?));
+                let config = Config::from_toml(&text, &file)?;
+                if self.reported.lock().unwrap().insert(file) {
+                    self.record_errors(&config);
+                    emit_config_errors(&config);
+                }
+                found = Some(Arc::new(config));
                 break;
             }
         }
@@ -647,15 +739,57 @@ impl Config {
         );
 
         let is_pyproject = path.file_name().is_some_and(|n| n == "pyproject.toml");
-        let sweep_table = if is_pyproject {
-            doc.get("tool").and_then(|t| t.get("sweep"))
+        let mut sweep_value = if is_pyproject {
+            doc.get("tool").and_then(|t| t.get("sweep")).cloned()
         } else {
-            Some(&doc)
+            Some(doc.clone())
         };
 
-        let raw: RawSweep = match sweep_table {
+        // Rule entries are validated one by one so a value this sweep
+        // can't parse — typically a config written for a different
+        // sweep version — degrades to a warning plus that one rule
+        // disabled, instead of failing the whole run. Structural
+        // problems (broken TOML, wrong exclude/line-length types)
+        // remain fatal.
+        let mut errors: Vec<String> = Vec::new();
+        let mut disabled: Vec<String> = Vec::new();
+        if let Some(rules) = sweep_value
+            .as_mut()
+            .and_then(|v| v.as_table_mut())
+            .and_then(|t| t.get_mut("rules"))
+            .and_then(|r| r.as_table_mut())
+        {
+            let keys: Vec<String> = rules.keys().cloned().collect();
+            for key in keys {
+                match check_rule_value(&key, &rules[&key], path) {
+                    Some(Ok(())) => {}
+                    Some(Err(err)) => {
+                        errors.push(format!(
+                            "rules.{key} in {} has a value this sweep cannot read ({err}); \
+                             the rule is disabled for this run. The config and the \
+                             installed sweep likely target different versions — update \
+                             the config or the pinned sweep version",
+                            path.display()
+                        ));
+                        disabled.push(key.clone());
+                        rules.remove(&key);
+                    }
+                    None => {
+                        errors.push(format!(
+                            "rules.{key} in {} is not a rule this sweep knows; the entry \
+                             is ignored. The config and the installed sweep likely \
+                             target different versions — update the config or the \
+                             pinned sweep version",
+                            path.display()
+                        ));
+                        rules.remove(&key);
+                    }
+                }
+            }
+        }
+
+        let raw: RawSweep = match sweep_value {
             Some(v) => v
-                .clone()
                 .try_into()
                 .with_context(|| format!("invalid [tool.sweep] config in {}", path.display()))?,
             None => RawSweep::default(),
@@ -737,12 +871,40 @@ impl Config {
                 .docstring_no_type_echo
                 .level()
                 .unwrap_or(defaults.docstring_no_type_echo_level),
+            errors: Vec::new(),
         };
+
+        for key in &disabled {
+            config.disable_rule(key);
+        }
+        config.errors = errors;
 
         if is_pyproject {
             config.absorb_first_party_hints(&doc);
         }
         Ok(config)
+    }
+
+    /// Force one rule off after its config entry failed to parse.
+    fn disable_rule(&mut self, key: &str) {
+        match key {
+            "imports-ban-local" => self.imports_ban_local_level = Level::Off,
+            "docstring-style" => self.docstring_level = Level::Off,
+            "docstring-start" => self.docstring_start.level = Level::Off,
+            "string-annotations" => self.string_annotations_level = Level::Off,
+            "docstring-line-length" => self.docstring_line_length_level = Level::Off,
+            "dict-style" => self.dict_style.level = Level::Off,
+            "annotate-module-const" => self.annotate_module_const_level = Level::Off,
+            "casing-enum-key" => self.casing_enum_key.level = Level::Off,
+            "casing-enum-val" => self.casing_enum_val.level = Level::Off,
+            "casing-module-const" => self.casing_module_const.level = Level::Off,
+            "allowed-emojis" => self.allowed_emojis_level = Level::Off,
+            "comments-no-echo" => self.comments_no_echo_level = Level::Off,
+            "docstring-sync" => self.docstring_sync_level = Level::Off,
+            "docstring-no-echo" => self.docstring_no_echo_level = Level::Off,
+            "docstring-no-type-echo" => self.docstring_no_type_echo_level = Level::Off,
+            _ => {}
+        }
     }
 
     /// Pull first-party package names from [project], [tool.poetry],
@@ -849,6 +1011,40 @@ level = "warn"
         assert_eq!(c.docstring_line_length_level, Level::Warn);
         assert_eq!(c.docstring_start.level, Level::Error); // untouched default
         assert_eq!(c.docstring_start.start, DocStart::NextLine);
+    }
+
+    #[test]
+    fn unreadable_rule_entries_warn_and_disable_instead_of_failing() {
+        // A value from a different sweep version: the rule goes off,
+        // the rest of the config still applies.
+        let text = r#"
+[tool.sweep.rules]
+docstring-start = "diagonal"
+imports-ban-local = "info"
+"#;
+        let c = Config::from_toml(text, Path::new("pyproject.toml")).unwrap();
+        assert_eq!(c.docstring_start.level, Level::Off);
+        assert_eq!(c.imports_ban_local_level, Level::Info);
+        assert_eq!(c.errors.len(), 1);
+        assert!(
+            c.errors[0].contains("rules.docstring-start"),
+            "{:?}",
+            c.errors
+        );
+
+        // A rule name this sweep doesn't know: entry ignored, warned.
+        let text = r#"
+[tool.sweep.rules]
+docstring-hologram = "warn"
+"#;
+        let c = Config::from_toml(text, Path::new("pyproject.toml")).unwrap();
+        assert_eq!(c.errors.len(), 1);
+        assert!(c.errors[0].contains("docstring-hologram"), "{:?}", c.errors);
+
+        // Structural problems stay fatal.
+        assert!(
+            Config::from_toml("[tool.sweep]\nexclude = 3\n", Path::new("pyproject.toml")).is_err()
+        );
     }
 
     #[test]

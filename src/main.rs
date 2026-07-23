@@ -171,9 +171,11 @@ fn check_command(
     formatter.print_summary(reports.len(), counts, fixed, fixable, fix);
 
     // Only errors gate the run; --strict promotes warnings. info never
-    // fails: it exists to notify, not to block.
+    // fails: it exists to notify, not to block. Config errors always
+    // fail: pre-commit only shows a hook's output when it fails, and a
+    // silently disabled rule must not hide behind a passing hook.
     let [_, warnings, errors] = counts;
-    let failing = errors + if strict { warnings } else { 0 };
+    let failing = errors + resolver.config_error_count() + if strict { warnings } else { 0 };
     Ok(if failing > 0 {
         ExitCode::FAILURE
     } else {

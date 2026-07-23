@@ -280,6 +280,36 @@ def kept():
 }
 
 #[test]
+fn unreadable_rule_config_reports_and_still_checks() {
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::write(
+        temp.path().join("sweep.toml"),
+        "[rules]\ndocstring-start = \"diagonal\"\nrule-from-the-future = \"warn\"\n",
+    )
+    .unwrap();
+    // A finding for another rule proves checking still happens.
+    std::fs::write(temp.path().join("input.py"), "x: \"int\" = 1\n").unwrap();
+
+    let output = run_sweep(temp.path(), &["check", "."]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stderr.contains("error[config]")
+            && stderr.contains("rules.docstring-start")
+            && stderr.contains("different versions"),
+        "stderr:\n{stderr}"
+    );
+    assert!(stderr.contains("rule-from-the-future"), "stderr:\n{stderr}");
+    assert!(
+        stdout.contains("string-annotations"),
+        "other rules must still run:\n{stdout}"
+    );
+    // Config errors fail the run: pre-commit only shows output of
+    // failing hooks, and a disabled rule must not pass silently.
+    assert_eq!(output.status.code(), Some(1), "stderr:\n{stderr}");
+}
+
+#[test]
 fn stale_expect_errors_unless_rule_deselected() {
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/scoped_suppressions");
     let temp = tempfile::tempdir().unwrap();

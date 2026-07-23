@@ -606,6 +606,31 @@ need no `[tool.sweep]` section at all:
   `[tool.ruff.lint.isort].known-first-party`, `[tool.isort].known_first_party`;
 - **line length**: `[tool.ruff].line-length`.
 
+### Version mismatches don't abort the run
+
+Configs and installed sweep versions drift — a repo adopts a new rule
+option before every machine's hook upgraded, or upgrades sweep while
+the config still names a retired rule. Rule entries are therefore
+validated one by one: an entry this sweep can't read disables **that
+rule**, an unknown rule name is ignored, and every other rule still
+checks the code. Either case reports on stderr:
+
+```
+sweep: error[config]: rules.docstring-start in app/pyproject.toml has a
+value this sweep cannot read (unsupported value); the rule is disabled
+for this run. The config and the installed sweep likely target
+different versions — update the config or the pinned sweep version
+```
+
+`error[config]` is printed once per config file and **fails the run**
+(exit 1) even when the code itself is clean. That is deliberate:
+pre-commit only shows a hook's output when the hook fails, so a
+passing exit would hide the message — and with it the fact that a rule
+you configured is not running. Unlike the old behavior, you still get
+the complete findings for all readable rules in the same run.
+Structural problems (invalid TOML, wrong types for `exclude` /
+`line-length`) still abort immediately with exit 2.
+
 ## CLI reference
 
 ```
