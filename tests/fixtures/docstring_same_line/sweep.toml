@@ -1,0 +1,3 @@
+[rules]
+docstring-style = "rest"
+docstring-start = "same-line"

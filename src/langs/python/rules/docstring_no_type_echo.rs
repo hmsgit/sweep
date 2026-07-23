@@ -76,7 +76,14 @@ impl Rule for DocstringNoTypeEcho {
             let mut fix = None;
             if level.applies_fixes() {
                 let rendered = render_ir(&cleaned, ctx.config.docstring_style);
-                fix = splice_fix(string, ctx.source, content_start, content, &rendered);
+                fix = splice_fix(
+                    string,
+                    ctx.source,
+                    content_start,
+                    content,
+                    &rendered,
+                    ctx.config.docstring_start.start,
+                );
             }
 
             for message in echoed {

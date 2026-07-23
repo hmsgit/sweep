@@ -84,5 +84,12 @@ fn rewrap_fix(
     let width = limit.saturating_sub(indent_len).max(24);
     let quote_len = content_start - string.start_byte();
     let rendered = rewrap(content, configured, width, quote_len)?;
-    splice_fix(string, ctx.source, content_start, content, &rendered)
+    splice_fix(
+        string,
+        ctx.source,
+        content_start,
+        content,
+        &rendered,
+        ctx.config.docstring_start.start,
+    )
 }

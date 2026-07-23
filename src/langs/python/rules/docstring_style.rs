@@ -58,8 +58,14 @@ impl Rule for DocstringStyle {
                     if level.applies_fixes()
                         && let Some(rendered) =
                             convert(content, style, configured, width, quote_len)
-                        && let Some(fix) =
-                            splice_fix(string, ctx.source, content_start, content, &rendered)
+                        && let Some(fix) = splice_fix(
+                            string,
+                            ctx.source,
+                            content_start,
+                            content,
+                            &rendered,
+                            ctx.config.docstring_start.start,
+                        )
                     {
                         diagnostic = diagnostic.with_fix(fix);
                     }

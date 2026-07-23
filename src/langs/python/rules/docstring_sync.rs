@@ -95,7 +95,14 @@ impl Rule for DocstringSync {
                     })
                     .collect();
                 let rendered = render_ir(&synced, ctx.config.docstring_style);
-                fix = splice_fix(string, ctx.source, content_start, content, &rendered);
+                fix = splice_fix(
+                    string,
+                    ctx.source,
+                    content_start,
+                    content,
+                    &rendered,
+                    ctx.config.docstring_start.start,
+                );
             }
 
             for message in messages {

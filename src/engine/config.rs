@@ -93,6 +93,31 @@ pub enum DictForm {
     Function,
 }
 
+/// Where a multi-line docstring's content begins relative to the
+/// opening quotes: pydocstyle's D213 (next line) vs D212 (same line).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DocStart {
+    NextLine,
+    SameLine,
+}
+
+/// Config for the docstring-start rule: a level plus the target shape.
+#[derive(Debug, Clone, Copy)]
+pub struct DocstringStartConfig {
+    pub level: Level,
+    pub start: DocStart,
+}
+
+impl Default for DocstringStartConfig {
+    fn default() -> Self {
+        Self {
+            level: Level::Error,
+            start: DocStart::NextLine,
+        }
+    }
+}
+
 /// Config for the dict-style rule: a level plus the target form.
 #[derive(Debug, Clone, Copy)]
 pub struct DictStyleConfig {
@@ -135,7 +160,7 @@ pub struct Config {
     pub line_length: usize,
     pub docstring_style: DocStyle,
     pub docstring_level: Level,
-    pub docstring_start_level: Level,
+    pub docstring_start: DocstringStartConfig,
     pub string_annotations_level: Level,
     pub imports_ban_local_level: Level,
     pub known_first_party: Vec<String>,
@@ -160,7 +185,7 @@ impl Default for Config {
             line_length: DEFAULT_LINE_LENGTH,
             docstring_style: DocStyle::default(),
             docstring_level: Level::Error,
-            docstring_start_level: Level::Error,
+            docstring_start: DocstringStartConfig::default(),
             string_annotations_level: Level::Error,
             imports_ban_local_level: Level::Error,
             known_first_party: Vec::new(),
@@ -196,7 +221,7 @@ struct RawSweep {
 struct RawRules {
     imports_ban_local: RawImportsBanLocal,
     docstring_style: RawDocstringStyle,
-    docstring_start: RawRuleEntry,
+    docstring_start: RawDocstringStart,
     string_annotations: RawRuleEntry,
     docstring_line_length: RawRuleEntry,
     dict_style: RawDictStyle,
@@ -260,6 +285,73 @@ impl RawDocstringStyle {
 impl Default for RawDocstringStyle {
     fn default() -> Self {
         RawDocstringStyle::Table(RawDocstringStyleTable::default())
+    }
+}
+
+/// docstring-start accepts `docstring-start = "next-line"` /
+/// `"same-line"` (shape shorthand — the rule is on by default, so this
+/// keeps the default error level), a bare level, or the table form
+/// with `level` and `start`.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawDocstringStart {
+    Token(String),
+    Table(RawDocstringStartTable),
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default, rename_all = "kebab-case")]
+struct RawDocstringStartTable {
+    level: Option<Level>,
+    start: Option<DocStart>,
+}
+
+impl RawDocstringStart {
+    fn resolve(&self, path: &Path) -> Result<DocstringStartConfig> {
+        let defaults = DocstringStartConfig::default();
+        match self {
+            RawDocstringStart::Token(token) => match token.as_str() {
+                "next-line" => Ok(DocstringStartConfig {
+                    start: DocStart::NextLine,
+                    ..defaults
+                }),
+                "same-line" => Ok(DocstringStartConfig {
+                    start: DocStart::SameLine,
+                    ..defaults
+                }),
+                "off" => Ok(DocstringStartConfig {
+                    level: Level::Off,
+                    ..defaults
+                }),
+                "info" => Ok(DocstringStartConfig {
+                    level: Level::Info,
+                    ..defaults
+                }),
+                "warn" => Ok(DocstringStartConfig {
+                    level: Level::Warn,
+                    ..defaults
+                }),
+                "error" => Ok(DocstringStartConfig {
+                    level: Level::Error,
+                    ..defaults
+                }),
+                other => anyhow::bail!(
+                    "invalid docstring-start value {other:?} in {} \
+                     (expected next-line|same-line or a level)",
+                    path.display()
+                ),
+            },
+            RawDocstringStart::Table(t) => Ok(DocstringStartConfig {
+                level: t.level.unwrap_or(defaults.level),
+                start: t.start.unwrap_or(defaults.start),
+            }),
+        }
+    }
+}
+
+impl Default for RawDocstringStart {
+    fn default() -> Self {
+        RawDocstringStart::Table(RawDocstringStartTable::default())
     }
 }
 
@@ -587,11 +679,7 @@ impl Config {
                 .unwrap_or(DEFAULT_LINE_LENGTH),
             docstring_style,
             docstring_level,
-            docstring_start_level: raw
-                .rules
-                .docstring_start
-                .level()
-                .unwrap_or(defaults.docstring_start_level),
+            docstring_start: raw.rules.docstring_start.resolve(path)?,
             string_annotations_level: raw
                 .rules
                 .string_annotations
@@ -759,7 +847,35 @@ level = "warn"
         assert_eq!(c.imports_ban_local_level, Level::Info);
         assert_eq!(c.string_annotations_level, Level::Off);
         assert_eq!(c.docstring_line_length_level, Level::Warn);
-        assert_eq!(c.docstring_start_level, Level::Error); // untouched default
+        assert_eq!(c.docstring_start.level, Level::Error); // untouched default
+        assert_eq!(c.docstring_start.start, DocStart::NextLine);
+    }
+
+    #[test]
+    fn docstring_start_accepts_shape_shorthand_and_table() {
+        let text = r#"
+[tool.sweep.rules]
+docstring-start = "same-line"
+"#;
+        let c = Config::from_toml(text, Path::new("pyproject.toml")).unwrap();
+        assert_eq!(c.docstring_start.level, Level::Error); // shape keeps default level
+        assert_eq!(c.docstring_start.start, DocStart::SameLine);
+
+        let text = r#"
+[tool.sweep.rules]
+docstring-start = { level = "warn", start = "same-line" }
+"#;
+        let c = Config::from_toml(text, Path::new("pyproject.toml")).unwrap();
+        assert_eq!(c.docstring_start.level, Level::Warn);
+        assert_eq!(c.docstring_start.start, DocStart::SameLine);
+
+        let text = r#"
+[tool.sweep.rules]
+docstring-start = "warn"
+"#;
+        let c = Config::from_toml(text, Path::new("pyproject.toml")).unwrap();
+        assert_eq!(c.docstring_start.level, Level::Warn);
+        assert_eq!(c.docstring_start.start, DocStart::NextLine);
     }
 
     #[test]

@@ -9,7 +9,7 @@ pub use markup::markup_issues;
 
 use tree_sitter::Node;
 
-use crate::engine::config::DocStyle;
+use crate::engine::config::{DocStart, DocStyle};
 use crate::engine::context::walk_tree;
 use crate::engine::fix::{Edit, Fix};
 use crate::langs::python::{docstring_of_statement, line_start, module_docstring};
@@ -264,18 +264,26 @@ pub fn base_indent<'a>(string: Node, source: &'a str) -> Option<&'a str> {
 
 /// Build the fix that replaces a docstring's content with `rendered`
 /// (dedented lines), re-applying the base indentation and keeping the
-/// closing-quote shape. `None` when splicing is unsafe or a no-op.
+/// closing-quote shape. Multi-line content follows the configured
+/// docstring-start shape. `None` when splicing is unsafe or a no-op.
 pub fn splice_fix(
     string: Node,
     source: &str,
     content_start: usize,
     content: &str,
     rendered: &str,
+    start: DocStart,
 ) -> Option<Fix> {
     let indent = base_indent(string, source)?;
 
     let mut new_content = String::new();
-    for line in rendered.lines() {
+    for (i, line) in rendered.lines().enumerate() {
+        if i == 0 && start == DocStart::SameLine {
+            // Same-line shape: the first content line stays on the
+            // opening-quote line.
+            new_content.push_str(line);
+            continue;
+        }
         new_content.push('\n');
         if !line.is_empty() {
             new_content.push_str(indent);
@@ -292,9 +300,8 @@ pub fn splice_fix(
         || source[string.start_byte()..content_start].contains("'''");
     let closes_on_own_line = content.trim_end_matches([' ', '\t']).ends_with('\n');
     if multi_line {
-        // Multi-line content needs triple quotes; it starts on the line
-        // after the opening quotes, aligned with them. Closing quotes
-        // keep the author's placement (own line only if it was so).
+        // Multi-line content needs triple quotes. Closing quotes keep
+        // the author's placement (own line only if it was so).
         if !is_triple {
             return None;
         }

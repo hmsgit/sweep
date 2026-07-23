@@ -79,7 +79,7 @@ See [Extending](#extending) for how to add a rule or a language.
 | [`imports-ban-local`](#imports-ban-local) | `import` / `from … import` inside functions | hoists to the module import block, section-sorted |
 | [`docstring-style`](#docstring-style) | docstrings following a different convention than configured; wrong inline markup | converts to the configured convention; fixes markup |
 | [`string-annotations`](#string-annotations) | quoted type annotations like `x: "Foo"` | unquotes; inserts `from __future__ import annotations` |
-| [`docstring-start`](#docstring-start) | multi-line docstrings whose content starts on the opening-quote line | moves the content to the next line, aligned with the quotes |
+| [`docstring-start`](#docstring-start) | multi-line docstrings whose content starts on the wrong side of the opening quotes (`next-line` default, `same-line` optional) | moves the content to the configured side |
 | [`docstring-line-length`](#docstring-line-length) | docstring lines exceeding the line length | `info` by default (report only); at `warn`/`error` re-flows prose |
 
 **House-style rules** — opt-in, `off` by default (see
@@ -200,8 +200,9 @@ depend on eager annotations.
 
 ### docstring-start
 
-Multi-line docstrings start their content on the line *after* the
-opening quotes, aligned with them (pydocstyle's D213 shape):
+Multi-line docstrings start their content on the configured side of the
+opening quotes. The default, `next-line` (pydocstyle's D213 shape),
+puts it on the line *after* the quotes, aligned with them:
 
 ```python
 def emit(scope):
@@ -212,10 +213,25 @@ def emit(scope):
     """
 ```
 
+`same-line` (D212) keeps the summary on the opening-quote line instead:
+
+```toml
+[tool.sweep.rules]
+docstring-start = "same-line"    # shape shorthand; level stays at its default
+```
+
+```python
+def emit(scope):
+    """Emit a change event for consumers.
+
+    :param scope: tenant scope of the event.
+    """
+```
+
 Single-line docstrings stay inline. Closing quotes are never touched —
 they may share the last content line or sit on their own line, whichever
 the author wrote. Docstring rewrites from other rules (conversion,
-rewrap) emit this shape directly.
+rewrap) emit the configured shape directly.
 
 ### docstring-line-length
 
@@ -533,7 +549,7 @@ known-first-party = ["mypkg"]
 | `line-length` (top level) | number | — | ruff's `line-length`, else 88 (ruff/black's default) |
 | `imports-ban-local` | level | `level`, `known-first-party` | `error` |
 | `docstring-style` | level or `rest`\|`google`\|`numpy` | `level`, `style` | `error`, `rest` |
-| `docstring-start` | level | `level` | `error` |
+| `docstring-start` | level or `next-line`\|`same-line` | `level`, `start` | `error`, `next-line` |
 | `string-annotations` | level | `level` | `error` |
 | `docstring-line-length` | level | `level` | `info` |
 | `dict-style` | level or `literal`\|`function`\|`func` | `level`, `style` | `off`, `function` |
