@@ -10,6 +10,7 @@ mod docstring_start;
 mod docstring_style;
 mod docstring_sync;
 mod imports_ban_local;
+mod no_emdash;
 mod string_annotations;
 
 use crate::engine::rule::Rule;
@@ -27,6 +28,7 @@ pub fn all_rules() -> Vec<Box<dyn Rule>> {
         Box::new(casing::CasingEnumVal),
         Box::new(casing::CasingModuleConst),
         Box::new(allowed_emojis::AllowedEmojis),
+        Box::new(no_emdash::NoEmdash),
         Box::new(comments_no_echo::CommentsNoEcho),
         Box::new(docstring_sync::DocstringSync),
         Box::new(docstring_no_echo::DocstringNoEcho),

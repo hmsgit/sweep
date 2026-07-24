@@ -93,6 +93,7 @@ See [Extending](#extending) for how to add a rule or a language.
 | `casing-enum-val` | enum string values not in the configured case | warn-only (changes serialized data) |
 | `casing-module-const` | module constant names not in the configured case | warn-only (cross-file rename) |
 | `allowed-emojis` | any emoji/unicode icon (pictographs, ✓/✗, arrows, shapes) not in the allowed set — enabled by setting `allowed-emojis` | deletes in comments/docstrings; warn-only inside strings |
+| `no-emdash` | typographic dashes (`—`, `–`, `―`) in code | replaces with `-` in comments/docstrings; warn-only inside strings |
 | `comments-no-echo` | narration comments that restate the adjacent code (`# create the payload`) | deletes the comment |
 | `docstring-sync` | documented parameters drifted from the signature (stale/missing entries) | rebuilds the param section in signature order |
 | `docstring-no-echo` | docstrings that only restate the function name (`def send_email(): """Send email."""`) | deletes the docstring |
@@ -259,7 +260,7 @@ shortened (one long word, a URL) keeps its warning and is left alone.
 
 ## House-style rules
 
-The core rules above are on by default; these six encode house
+The core rules above are on by default; these encode house
 conventions and stay `off` until a project opts in:
 
 ```toml
@@ -270,6 +271,7 @@ casing-enum-key = "lower"        # lower | upper (shorthand enables at warn)
 casing-enum-val = "lower"
 casing-module-const = "lower"
 allowed-emojis = ""              # presence enables the rule; "" = no exceptions
+no-emdash = "warn"
 comments-no-echo = "warn"
 docstring-sync = "warn"
 docstring-no-echo = "warn"
@@ -326,6 +328,11 @@ Other notes:
   (✓/✗), arrows (→), misc technical and geometric-shape characters;
   invisible emoji plumbing (variation selectors, ZWJ) is cleaned up
   with its base character but never flagged alone.
+- `no-emdash` flags typographic dashes — em dash (`—`), en dash (`–`),
+  horizontal bar (`―`) — the prose punctuation LLMs love. In comments
+  and docstrings `--fix` replaces each with an ASCII hyphen; inside
+  other string literals it warns without fixing, since rewriting could
+  change user-facing or serialized text.
 
 ## Severity levels
 
@@ -592,7 +599,7 @@ known-first-party = ["mypkg"]
 | `annotate-module-const` | level | `level` | `off` |
 | `casing-enum-key` / `casing-enum-val` / `casing-module-const` | level or `lower`\|`upper` | `level`, `case` | `off`, `lower` |
 | `allowed-emojis` | string of allowed characters (presence enables at warn) | — | absent = off |
-| `comments-no-echo`, `docstring-sync`, `docstring-no-echo`, `docstring-no-type-echo` | level | `level` | `off` |
+| `no-emdash`, `comments-no-echo`, `docstring-sync`, `docstring-no-echo`, `docstring-no-type-echo` | level | `level` | `off` |
 
 Value shorthands (`"rest"`, `"lower"`, `"literal"`) enable opt-in rules
 at `warn`; on `docstring-style`, which is on by default, the shorthand

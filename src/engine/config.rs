@@ -172,6 +172,7 @@ pub struct Config {
     pub casing_module_const: CasingConfig,
     pub allowed_emojis_level: Level,
     pub allowed_emojis: Vec<char>,
+    pub no_emdash_level: Level,
     pub comments_no_echo_level: Level,
     pub docstring_sync_level: Level,
     pub docstring_no_echo_level: Level,
@@ -203,6 +204,7 @@ impl Default for Config {
             casing_module_const: CasingConfig::default(),
             allowed_emojis_level: Level::Off,
             allowed_emojis: Vec::new(),
+            no_emdash_level: Level::Off,
             comments_no_echo_level: Level::Off,
             docstring_sync_level: Level::Off,
             docstring_no_echo_level: Level::Off,
@@ -238,6 +240,7 @@ struct RawRules {
     /// The one knob for the no-emoji rule: its presence enables the
     /// rule (at warn), its value is the exception list ("" = none).
     allowed_emojis: Option<String>,
+    no_emdash: RawRuleEntry,
     comments_no_echo: RawRuleEntry,
     docstring_sync: RawRuleEntry,
     docstring_no_echo: RawRuleEntry,
@@ -599,6 +602,7 @@ fn check_rule_value(key: &str, value: &toml::Value, path: &Path) -> Option<Resul
         "string-annotations"
         | "docstring-line-length"
         | "annotate-module-const"
+        | "no-emdash"
         | "comments-no-echo"
         | "docstring-sync"
         | "docstring-no-echo"
@@ -851,6 +855,11 @@ impl Config {
                 .unwrap_or("")
                 .chars()
                 .collect(),
+            no_emdash_level: raw
+                .rules
+                .no_emdash
+                .level()
+                .unwrap_or(defaults.no_emdash_level),
             comments_no_echo_level: raw
                 .rules
                 .comments_no_echo
@@ -899,6 +908,7 @@ impl Config {
             "casing-enum-val" => self.casing_enum_val.level = Level::Off,
             "casing-module-const" => self.casing_module_const.level = Level::Off,
             "allowed-emojis" => self.allowed_emojis_level = Level::Off,
+            "no-emdash" => self.no_emdash_level = Level::Off,
             "comments-no-echo" => self.comments_no_echo_level = Level::Off,
             "docstring-sync" => self.docstring_sync_level = Level::Off,
             "docstring-no-echo" => self.docstring_no_echo_level = Level::Off,
