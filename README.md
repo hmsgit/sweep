@@ -23,7 +23,7 @@ non-conflicting fixes and re-checks until nothing is left to do.
 # .pre-commit-config.yaml
 repos:
   - repo: https://github.com/hmsgit/sweep
-    rev: v0.1.2
+    rev: v0.1.3
     hooks:
       - id: sweep        # check only
       # or:
