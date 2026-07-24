@@ -20,5 +20,7 @@ class Color(Enum):
 def load():
     options = dict(depth=2, flags=dict(a=1))
     weird = {"not-ident": 1}
+    merged = dict(options, depth=5)
+    combo = dict(mode=1) | dict(options, extra=2)
     banner = "🎉 launched"
-    return options, weird, banner
+    return options, weird, merged, combo, banner

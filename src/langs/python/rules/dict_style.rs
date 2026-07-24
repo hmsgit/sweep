@@ -13,6 +13,15 @@ use crate::engine::rule::Rule;
 /// conversions are made — computed keys, positional `dict(...)`
 /// arguments, keywords, duplicates and comments inside the expression
 /// all make sweep leave it alone.
+///
+/// Splats never become `**` in a call (`dict(**d, a=5)` raises
+/// TypeError where `{**d, "a": 5}` overrides). Instead they fold in as
+/// positional mappings, chained with `|` when the shape demands it:
+/// `{**d, "a": 5}` -> `dict(d, a=5)` and
+/// `{"a": 1, **d}` -> `dict(a=1) | dict(d)` — both merge exactly like
+/// the literal. The call-to-literal direction converts `**` freely:
+/// any `dict(**d, ...)` that runs without raising builds the same dict
+/// as the literal.
 pub struct DictStyle;
 
 const KEYWORDS: &[&str] = &[
@@ -41,11 +50,8 @@ impl Rule for DictStyle {
         walk_tree(ctx.root(), &mut |node| {
             let rewrite = match config.form {
                 DictForm::Function if node.kind() == "dictionary" => {
-                    literal_to_call(node, ctx.source).map(|items| {
-                        (
-                            format!("dict({})", items.join(", ")),
-                            "prefer dict(key=val) over {\"key\": val}",
-                        )
+                    literal_to_call(node, ctx.source).map(|replacement| {
+                        (replacement, "prefer dict(key=val) over {\"key\": val}")
                     })
                 }
                 DictForm::Literal if node.kind() == "call" => call_to_literal(node, ctx.source)
@@ -81,10 +87,18 @@ impl Rule for DictStyle {
     }
 }
 
-/// `{"key": val}` items as keyword arguments, or None when the literal
-/// can't be expressed as a dict(...) call.
-fn literal_to_call(dict: Node, source: &str) -> Option<Vec<String>> {
-    let mut items = Vec::new();
+/// A `{...}` literal as an equivalent call expression, or None when no
+/// faithful form exists. Plain literals become `dict(k=v, ...)`. A
+/// splat starts a new chunk with itself as the positional mapping —
+/// `dict(d, a=5)` lets the keywords override d exactly like the
+/// literal — and chunks merge with `|`, whose later-wins semantics
+/// also match the literal:
+///
+/// `{**d, "a": 5}`        -> `dict(d, a=5)`
+/// `{"a": 1, **d, "b": 2}` -> `dict(a=1) | dict(d, b=2)`
+fn literal_to_call(dict: Node, source: &str) -> Option<String> {
+    // Each chunk: an optional splatted mapping plus following pairs.
+    let mut chunks: Vec<(Option<String>, Vec<String>)> = Vec::new();
     let mut keys: Vec<String> = Vec::new();
     let mut cursor = dict.walk();
     for child in dict.children(&mut cursor) {
@@ -92,7 +106,10 @@ fn literal_to_call(dict: Node, source: &str) -> Option<Vec<String>> {
             "{" | "}" | "," => {}
             // Comments inside the literal would be dropped by a rewrite.
             "comment" => return None,
-            "dictionary_splat" => items.push(source[child.byte_range()].to_string()),
+            "dictionary_splat" => {
+                let expr = child.named_child(0)?;
+                chunks.push((Some(source[expr.byte_range()].to_string()), Vec::new()));
+            }
             "pair" => {
                 let key = child.child_by_field_name("key")?;
                 let value = child.child_by_field_name("value")?;
@@ -101,13 +118,62 @@ fn literal_to_call(dict: Node, source: &str) -> Option<Vec<String>> {
                     return None;
                 }
                 keys.push(name.clone());
-                items.push(format!("{name}={}", &source[value.byte_range()]));
+                if chunks.is_empty() {
+                    chunks.push((None, Vec::new()));
+                }
+                let pairs = &mut chunks.last_mut()?.1;
+                pairs.push(format!("{name}={}", &source[value.byte_range()]));
             }
             _ => return None,
         }
     }
     // Only pairs make the rewrite worthwhile; `{}` and `{**a}` stay.
-    (!keys.is_empty()).then_some(items)
+    if keys.is_empty() {
+        return None;
+    }
+
+    let rendered: Vec<String> = chunks
+        .iter()
+        .map(|(splat, pairs)| {
+            let mut args: Vec<String> = Vec::new();
+            args.extend(splat.iter().cloned());
+            args.extend(pairs.iter().cloned());
+            format!("dict({})", args.join(", "))
+        })
+        .collect();
+    if rendered.len() == 1 {
+        return rendered.into_iter().next();
+    }
+    let joined = rendered.join(" | ");
+    Some(if union_needs_parens(dict) {
+        format!("({joined})")
+    } else {
+        joined
+    })
+}
+
+/// A multi-chunk union replaces the literal with a `|` expression,
+/// which binds looser than the literal did; parenthesize unless the
+/// surrounding node already delimits it.
+fn union_needs_parens(dict: Node) -> bool {
+    let Some(parent) = dict.parent() else {
+        return false;
+    };
+    !matches!(
+        parent.kind(),
+        "expression_statement"
+            | "assignment"
+            | "augmented_assignment"
+            | "return_statement"
+            | "argument_list"
+            | "keyword_argument"
+            | "pair"
+            | "list"
+            | "set"
+            | "tuple"
+            | "parenthesized_expression"
+            | "yield"
+    )
 }
 
 /// `dict(key=val, **rest)` items as literal pairs, or None when the

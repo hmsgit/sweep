@@ -19,5 +19,7 @@ class Color(Enum):
 def load():
     options = {"depth": 2, "flags": {"a": 1}}
     weird = {"not-ident": 1}
+    merged = {**options, "depth": 5}
+    combo = {"mode": 1, **options, "extra": 2}
     banner = "🎉 launched"
-    return options, weird, banner
+    return options, weird, merged, combo, banner

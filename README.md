@@ -282,8 +282,17 @@ Notes:
 
 - `dict-style` converts only what it can express faithfully: non-string or
   non-identifier keys, Python keywords, duplicate keys, or comments
-  inside the literal. Splats pass through (`{**a, "b": 1}` →
-  `dict(**a, b=1)`).
+  inside the literal make sweep leave it alone. Splats never become
+  `**` in a call — `{**d, "a": 5}` silently overrides `d`'s key, while
+  `dict(**d, a=5)` raises `TypeError` on the collision (and on
+  non-string keys in `d`). Instead the splat folds in as the positional
+  mapping, chained with the `|` merge operator (Python 3.9+) when the
+  shape demands it — both merge exactly like the literal:
+  `{**d, "a": 5}` → `dict(d, a=5)`;
+  `{"a": 1, **d, "b": 2}` → `dict(a=1) | dict(d, b=2)`.
+  The other direction converts `**` freely: `dict(**d, a=5)` →
+  `{**d, "a": 5}` builds the same dict whenever the original call ran
+  without raising.
 - `annotate-module-const` only annotates; whether the *name* should be
   `UPPER_CASE` or `lower_case` is `casing-module-const`'s business —
   the two are independent knobs.
