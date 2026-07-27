@@ -5,10 +5,11 @@ use crate::engine::diagnostic::Diagnostic;
 use crate::engine::rule::Rule;
 use crate::langs::python::imports;
 
-/// Flags imports written inside function bodies. Deliberate local imports
-/// (cycle avoidance, lazy heavy deps) should carry `# sweep: avoid-cycle`
-/// or `# sweep: ignore[imports-ban-local] <reason>`; everything else gets
-/// hoisted to the module import block under --fix.
+/// Flags imports written inside function bodies. Deliberate local
+/// imports should carry `# sweep: avoid-cycle` (cycle dodges),
+/// `# sweep: deferred-import` (heavy/optional dependencies, startup
+/// cost) or `# sweep: ignore[imports-ban-local] <reason>`; everything
+/// else gets hoisted to the module import block under --fix.
 pub struct ImportsBanLocal;
 
 impl Rule for ImportsBanLocal {
@@ -17,7 +18,7 @@ impl Rule for ImportsBanLocal {
     }
 
     fn explain(&self) -> &'static str {
-        "imports inside functions must be justified (# sweep: avoid-cycle) or hoisted to module level"
+        "imports inside functions must be justified (# sweep: avoid-cycle / deferred-import) or hoisted"
     }
 
     fn check(&self, ctx: &FileContext) -> Vec<Diagnostic> {
@@ -41,7 +42,8 @@ impl Rule for ImportsBanLocal {
             let mut diagnostic = Diagnostic::new(
                 self.name(),
                 format!(
-                    "`{}` inside a function; hoist to module level or mark it `# sweep: avoid-cycle`",
+                    "`{}` inside a function; hoist to module level or mark it \
+                     `# sweep: avoid-cycle` / `# sweep: deferred-import`",
                     first_line(ctx.text(node)),
                 ),
                 node.start_byte(),

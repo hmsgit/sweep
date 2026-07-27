@@ -31,3 +31,8 @@ def conditional():
 def dedup():
     import os
     return os.sep
+
+
+def lazy():
+    import torch  # sweep: deferred-import heavy dependency
+    return torch.zeros(1)

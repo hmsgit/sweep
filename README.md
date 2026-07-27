@@ -103,12 +103,22 @@ See [Extending](#extending) for how to add a rule or a language.
 
 Imports belong at module level. Function-level imports usually exist for
 one of two reasons — breaking an import cycle, or deferring a heavy/optional
-dependency — and both deserve to be visible and justified:
+dependency — and both deserve to be visible and justified, each with its
+own annotation:
 
 ```python
 def build():
     from app.models import Model  # sweep: avoid-cycle models imports builders
+
+
+def embed(texts):
+    import torch  # sweep: deferred-import heavy, only needed for local inference
 ```
+
+Both suppress this rule for that line; the name states the reason —
+`avoid-cycle` for cycle dodges, `deferred-import` for any intentional
+lazy import. Don't mark a plain lazy import `avoid-cycle`: the next
+reader will go hunting for a cycle that isn't there.
 
 Everything unjustified is flagged. Under `--fix` (at the default
 `error` level, or `warn`) the import is moved into the module's top
@@ -381,6 +391,7 @@ Quick reference:
 | `# sweep: ignore-file[rules] reason` | whole file | file header, before the first statement | silent |
 | `# sweep: expect[rules] reason` | one line | on the line, or the line above it | **`error[expect]`** |
 | `# sweep: avoid-cycle reason` | one line | on the import, or the line above it | silent |
+| `# sweep: deferred-import reason` | one line | on the import, or the line above it | silent |
 | `# noqa` / `# type: ignore` (bare) | one line | on the line only | silent |
 
 Everywhere `[rules]` appears it is optional — omitting it silences

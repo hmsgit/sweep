@@ -40,7 +40,10 @@ impl RuleFilter {
 ///   the first real statement): the whole file.
 /// - `# sweep: expect[rules]` — like ignore, but it is an error when
 ///   no matching finding was actually suppressed (self-cleaning).
-/// - `# sweep: avoid-cycle reason` — imports-ban-local shorthand.
+/// - `# sweep: avoid-cycle reason` / `# sweep: deferred-import reason`
+///   — imports-ban-local shorthands: the first documents a cycle
+///   dodge, the second any intentional lazy import (heavy or optional
+///   dependency, startup cost).
 ///
 /// Misplaced ignore-file/ignore-block directives degrade to line scope.
 /// Bare `# noqa` and `# type: ignore` (no codes) also suppress, on
@@ -326,10 +329,12 @@ fn is_blanket_marker(segment: &str) -> bool {
 fn parse_sweep_directive(segment: &str) -> Option<Parsed> {
     let rest = segment.strip_prefix("sweep:")?.trim();
 
-    if rest == "avoid-cycle" || rest.starts_with("avoid-cycle ") {
-        return Some(Parsed::Ignore(RuleFilter::Named(vec![
-            "imports-ban-local".to_string(),
-        ])));
+    for shorthand in ["avoid-cycle", "deferred-import"] {
+        if rest == shorthand || rest.starts_with(&format!("{shorthand} ")) {
+            return Some(Parsed::Ignore(RuleFilter::Named(vec![
+                "imports-ban-local".to_string(),
+            ])));
+        }
     }
     for (keyword, build) in [
         ("expect", Parsed::Expect as fn(RuleFilter) -> Parsed),
@@ -383,6 +388,12 @@ mod tests {
         );
         assert_eq!(
             directives("# sweep: avoid-cycle models <-> tasks"),
+            vec![Parsed::Ignore(RuleFilter::Named(vec![
+                "imports-ban-local".into()
+            ]))]
+        );
+        assert_eq!(
+            directives("# sweep: deferred-import torch is heavy"),
             vec![Parsed::Ignore(RuleFilter::Named(vec![
                 "imports-ban-local".into()
             ]))]
