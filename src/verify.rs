@@ -18,7 +18,9 @@ use anyhow::{Context as _, Result};
 use rayon::prelude::*;
 
 use crate::engine::config::{Config, ProjectDeps};
-use crate::langs::python::rules::imports_required_extras::required_extras;
+use crate::langs::python::rules::imports_required_extras::{
+    RequireSource, required_extras_with_source,
+};
 use crate::output::count;
 
 /// Imports each argv module, one TSV result line per module. BaseException
@@ -112,9 +114,10 @@ pub fn verify_command(path: &Path, only: &[String], skip: &[String]) -> Result<E
     let styled = std::io::stdout().is_terminal();
     let mut errors = 0usize;
     // Modules that imported fine somewhere their requirements weren't
-    // met, and the venvs it happened in — the mapping overstates
-    // what the code needs. One note per module, not per environment.
-    let mut overmapped: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    // met, grouped by the mapping decision that set the requirement —
+    // the unit a reader would edit. One note per mapping, not per
+    // module per venv.
+    let mut overmapped: BTreeMap<RequireSource, Overmapped> = BTreeMap::new();
 
     for (env_name, outcome) in &results {
         let available = available_paths(deps, env_name);
@@ -131,7 +134,8 @@ pub fn verify_command(path: &Path, only: &[String], skip: &[String]) -> Result<E
         // exception keeps the report one line per cause.
         let mut grouped: BTreeMap<String, Vec<&str>> = BTreeMap::new();
         for module in &modules {
-            let requires = required_extras(module, &config.imports_required_extras, deps);
+            let (requires, source) =
+                required_extras_with_source(module, &config.imports_required_extras, deps);
             let satisfied = requires.iter().all(|extra| {
                 deps.extras
                     .iter()
@@ -141,7 +145,13 @@ pub fn verify_command(path: &Path, only: &[String], skip: &[String]) -> Result<E
             let verdict = match imports.get(module) {
                 Some(ImportOutcome::Ok) => {
                     if !satisfied {
-                        overmapped.entry(module).or_default().push(env_name);
+                        let entry = overmapped.entry(source).or_insert_with(|| Overmapped {
+                            requires: requires.clone(),
+                            modules: BTreeSet::new(),
+                            venvs: BTreeSet::new(),
+                        });
+                        entry.modules.insert(module);
+                        entry.venvs.insert(env_name);
                     }
                     continue;
                 }
@@ -176,25 +186,60 @@ pub fn verify_command(path: &Path, only: &[String], skip: &[String]) -> Result<E
     }
 
     let mut notes = 0usize;
-    for (module, envs) in overmapped {
-        let requires = required_extras(module, &config.imports_required_extras, deps);
+    for (source, hits) in overmapped {
+        // How many modules this mapping decision governs in total, so
+        // the note can say "all 24" vs "17 of 24".
+        let governed = modules
+            .iter()
+            .filter(|module| {
+                required_extras_with_source(module, &config.imports_required_extras, deps).1
+                    == source
+            })
+            .count();
+        let scope = match &source {
+            RequireSource::Explicit(key) => format!(
+                "the requires entry \"{key}\" maps to {}",
+                describe_requires(&hits.requires),
+            ),
+            RequireSource::NameMatch { prefix, extra } => {
+                format!("{prefix} is name-matched to extra {extra}")
+            }
+            RequireSource::Base => continue,
+        };
+        let coverage = if governed == 1 {
+            "its module".to_string()
+        } else if hits.modules.len() == governed {
+            format!("all {}", count(governed, "module"))
+        } else {
+            format!(
+                "{} of its {}",
+                hits.modules.len(),
+                count(governed, "module")
+            )
+        };
+        let module_samples: Vec<&str> = hits.modules.iter().copied().collect();
+        let venv_samples: Vec<&str> = hits.venvs.iter().copied().collect();
         print_finding(
             styled,
             "info",
             "mapping",
             &format!(
-                "{module} is mapped to require {}, yet it imported fine in {} \
-                 without {} ({}). Nothing is broken — but either the requires \
-                 entry claims more than the code needs, or a dependency is only \
-                 arriving transitively today.",
-                describe_requires(&requires),
-                if envs.len() == 1 {
-                    "a venv".to_string()
+                "{scope}, yet {coverage} imported fine in {} \
+                 without {} ({}). Nothing is broken — but either the mapping \
+                 claims more than the code needs, or a dependency is only \
+                 arriving transitively today.{}",
+                count(hits.venvs.len(), "venv"),
+                if hits.requires.len() == 1 {
+                    "it"
                 } else {
-                    format!("{} venvs", envs.len())
+                    "them"
                 },
-                if requires.len() == 1 { "it" } else { "them" },
-                sample(&envs),
+                sample(&venv_samples),
+                if hits.modules.len() < governed {
+                    format!(" (e.g. {})", sample(&module_samples))
+                } else {
+                    String::new()
+                },
             ),
         );
         notes += 1;
@@ -217,6 +262,15 @@ pub fn verify_command(path: &Path, only: &[String], skip: &[String]) -> Result<E
 enum ImportOutcome {
     Ok,
     Fail { exc_type: String, message: String },
+}
+
+/// One mapping decision whose modules imported fine where the mapping
+/// said they couldn't: the shared requirement, the modules it
+/// happened to, and the venvs it happened in.
+struct Overmapped<'m> {
+    requires: Vec<String>,
+    modules: BTreeSet<&'m str>,
+    venvs: BTreeSet<&'m str>,
 }
 
 /// The pyproject governing `path`: the file itself, or the nearest one

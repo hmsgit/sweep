@@ -113,6 +113,15 @@ fn module_path(path: &Path, config: &Config, deps: &ProjectDeps) -> Option<Modul
     })
 }
 
+/// Where a module's extras requirement came from: an explicit
+/// `requires` entry, the name-match convention, or neither (base).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum RequireSource {
+    Explicit(String),
+    NameMatch { prefix: String, extra: String },
+    Base,
+}
+
 /// Extras a module (given as a dotted path rooted at a package root)
 /// requires: the longest explicit `requires` prefix wins; unmapped
 /// modules fall back to the name-match convention on their first-level
@@ -122,6 +131,16 @@ pub(crate) fn required_extras(
     config: &ImportsRequiredExtrasConfig,
     deps: &ProjectDeps,
 ) -> Vec<String> {
+    required_extras_with_source(dotted, config, deps).0
+}
+
+/// `required_extras`, plus which mapping decided it — the unit a
+/// reader would edit in response to a finding.
+pub(crate) fn required_extras_with_source(
+    dotted: &str,
+    config: &ImportsRequiredExtrasConfig,
+    deps: &ProjectDeps,
+) -> (Vec<String>, RequireSource) {
     // requires is sorted longest-key-first at parse time.
     for (key, extras) in &config.requires {
         let matched = if let Some(relative) = key.strip_prefix('.') {
@@ -132,21 +151,28 @@ pub(crate) fn required_extras(
             prefix_matches(key, dotted)
         };
         if matched {
-            return extras.clone();
+            return (extras.clone(), RequireSource::Explicit(key.clone()));
         }
     }
 
     if config.match_by_name
-        && let Some(first_level) = dotted.split('.').nth(1)
+        && let Some((root, rest)) = dotted.split_once('.')
     {
+        let first_level = rest.split('.').next().unwrap_or(rest);
         let flat = normalize_flat(first_level);
         for (extra, _) in &deps.extras {
             if normalize_flat(extra) == flat {
-                return vec![extra.clone()];
+                return (
+                    vec![extra.clone()],
+                    RequireSource::NameMatch {
+                        prefix: format!("{root}.{first_level}"),
+                        extra: extra.clone(),
+                    },
+                );
             }
         }
     }
-    Vec::new()
+    (Vec::new(), RequireSource::Base)
 }
 
 /// True when `prefix` equals `dotted` or is a dot-boundary prefix of it.
