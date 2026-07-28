@@ -19,6 +19,7 @@ use rayon::prelude::*;
 
 use crate::engine::config::{Config, ProjectDeps};
 use crate::langs::python::rules::imports_required_extras::required_extras;
+use crate::output::count;
 
 /// Imports each argv module, one TSV result line per module. BaseException
 /// so SystemExit-raising module bodies are reported, not fatal. The
@@ -147,11 +148,14 @@ pub fn verify_command(path: &Path, only: &[String], skip: &[String]) -> Result<E
                 Some(ImportOutcome::Fail { exc_type, message }) => {
                     if satisfied {
                         format!(
-                            "must import here (requires {}) but fails: {exc_type}: {message}",
+                            "expected to import here (this environment provides its required {}) \
+                             yet failed: {exc_type}: {message}",
                             describe_requires(&requires),
                         )
                     } else if exc_type != "ModuleNotFoundError" {
-                        format!("fails beyond a missing optional dependency: {exc_type}: {message}")
+                        format!(
+                            "failed with more than a missing optional dependency: {exc_type}: {message}"
+                        )
                     } else {
                         continue;
                     }
@@ -180,7 +184,7 @@ pub fn verify_command(path: &Path, only: &[String], skip: &[String]) -> Result<E
             "mapping",
             &format!(
                 "{module} is mapped to require {}, yet it imported fine in {} \
-                 without them ({}). Nothing is broken — but either the requires \
+                 without {} ({}). Nothing is broken — but either the requires \
                  entry claims more than the code needs, or a dependency is only \
                  arriving transitively today.",
                 describe_requires(&requires),
@@ -189,6 +193,7 @@ pub fn verify_command(path: &Path, only: &[String], skip: &[String]) -> Result<E
                 } else {
                     format!("{} environments", envs.len())
                 },
+                if requires.len() == 1 { "it" } else { "them" },
                 sample(&envs),
             ),
         );
@@ -196,9 +201,11 @@ pub fn verify_command(path: &Path, only: &[String], skip: &[String]) -> Result<E
     }
 
     println!(
-        "sweep verify: {} environment(s) × {} module(s): {errors} error(s), {notes} note(s)",
-        results.len(),
-        modules.len(),
+        "sweep verify: {} × {}: {}, {}",
+        count(results.len(), "environment"),
+        count(modules.len(), "module"),
+        count(errors, "error"),
+        count(notes, "note"),
     );
     Ok(if errors > 0 {
         ExitCode::FAILURE
@@ -402,8 +409,8 @@ fn describe_group(verdict: &str, affected: &[&str]) -> String {
     match affected {
         [module] => format!("{module} {verdict}"),
         _ => format!(
-            "{} module(s) {verdict} — e.g. {}",
-            affected.len(),
+            "{} {verdict} — e.g. {}",
+            count(affected.len(), "module"),
             sample(affected),
         ),
     }
@@ -422,7 +429,15 @@ fn describe_requires(requires: &[String]) -> String {
     if requires.is_empty() {
         "the base install".to_string()
     } else {
-        format!("extra(s) {}", requires.join(", "))
+        format!(
+            "{} {}",
+            if requires.len() == 1 {
+                "extra"
+            } else {
+                "extras"
+            },
+            requires.join(", "),
+        )
     }
 }
 

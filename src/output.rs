@@ -144,19 +144,27 @@ impl Formatter {
             // verbose: true, and an empty stdout keeps clean commits
             // free of noise while findings stay visible.
             (0, 0) if !self.tty => {}
-            (0, 0) => println!("All clean ({files} files)."),
-            (0, _) => println!("Fixed {fixed} issue(s); all clean ({files} files)."),
+            (0, 0) => println!("All clean ({}).", count(files, "file")),
+            (0, _) => println!(
+                "Fixed {}; all clean ({}).",
+                count(fixed, "issue"),
+                count(files, "file"),
+            ),
             _ => {
                 let breakdown: Vec<String> = [
-                    (errors, "error(s)", RED),
-                    (warnings, "warning(s)", YELLOW),
+                    (errors, "error", RED),
+                    (warnings, "warning", YELLOW),
                     (infos, "info", CYAN),
                 ]
                 .iter()
                 .filter(|(n, _, _)| *n > 0)
-                .map(|(n, label, color)| self.paint(color, &format!("{n} {label}")))
+                .map(|(n, noun, color)| self.paint(color, &count(*n, noun)))
                 .collect();
-                let mut summary = format!("Found {remaining} issue(s) ({})", breakdown.join(", "));
+                let mut summary = format!(
+                    "Found {} ({})",
+                    count(remaining, "issue"),
+                    breakdown.join(", "),
+                );
                 if fixed > 0 {
                     summary.push_str(&format!(", {fixed} fixed"));
                 }
@@ -170,6 +178,16 @@ impl Formatter {
                 }
             }
         }
+    }
+}
+
+/// "1 file", "3 files" — counted nouns pluralized for real, never
+/// "file(s)". "info" stays invariant ("3 info").
+pub fn count(n: usize, noun: &str) -> String {
+    if n == 1 || noun == "info" {
+        format!("{n} {noun}")
+    } else {
+        format!("{n} {noun}s")
     }
 }
 

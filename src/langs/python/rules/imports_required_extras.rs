@@ -175,31 +175,36 @@ impl Violation {
         let guarantee = if allowed.is_empty() {
             format!("`{module}` must import with the base install")
         } else {
-            format!("`{module}` may only assume extra(s) {}", join(allowed))
+            format!("`{module}` may only assume {}", extras_phrase(allowed))
         };
         match self {
             Violation::ThirdParty { import, ships_in } => format!(
-                "`{import}` only ships in extra(s) {}, but {guarantee}; \
+                "`{import}` only ships in {}, but {guarantee}; \
                  defer the import into the using function (# sweep: deferred-import) \
                  or extend rules.imports-required-extras.requires",
-                join(ships_in),
+                extras_phrase(ships_in),
             ),
             Violation::FirstParty { import, requires } => format!(
-                "`{import}` requires extra(s) {}, but {guarantee}; \
+                "`{import}` requires {}, but {guarantee}; \
                  defer the import into the using function (# sweep: deferred-import) \
                  or extend rules.imports-required-extras.requires",
-                join(requires),
+                extras_phrase(requires),
             ),
         }
     }
 }
 
-fn join(names: &[String]) -> String {
-    names
-        .iter()
-        .map(|n| format!("`{n}`"))
-        .collect::<Vec<_>>()
-        .join(", ")
+/// "extra `llm`" or "extras `llm`, `pgsql`".
+fn extras_phrase(names: &[String]) -> String {
+    format!(
+        "{} {}",
+        if names.len() == 1 { "extra" } else { "extras" },
+        names
+            .iter()
+            .map(|n| format!("`{n}`"))
+            .collect::<Vec<_>>()
+            .join(", "),
+    )
 }
 
 /// The first unsatisfiable import target in a module-level import
@@ -425,7 +430,7 @@ mod tests {
             findings[0].contains("`fastmcp.tools.base.Tool`"),
             "{findings:?}"
         );
-        assert!(findings[0].contains("extra(s) `llm`"), "{findings:?}");
+        assert!(findings[0].contains("extra `llm`"), "{findings:?}");
         assert!(findings[0].contains("base install"), "{findings:?}");
     }
 
@@ -456,7 +461,7 @@ mod tests {
         assert_eq!(findings.len(), 1);
         assert!(findings[0].contains("`datascience`"), "{findings:?}");
         assert!(
-            findings[0].contains("may only assume extra(s) `llm`"),
+            findings[0].contains("may only assume extra `llm`"),
             "{findings:?}"
         );
     }
