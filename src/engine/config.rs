@@ -229,6 +229,60 @@ fn requirement_name(spec: &str) -> &str {
     &spec[..end]
 }
 
+/// One requirement in `[project]` dependency lists: either resolved
+/// import paths, or a self-referencing extra (`pkg[extra]` where pkg is
+/// this project) to be expanded into that extra's paths.
+#[derive(Debug, Clone)]
+enum DepSpec {
+    Paths(Vec<String>),
+    SelfExtras(Vec<String>),
+}
+
+/// The bracketed extras of a requirement spec (`pkg[a, b] >= 1` →
+/// ["a", "b"]), if any.
+fn requirement_extras(spec: &str) -> Vec<String> {
+    let Some(open) = spec.find('[') else {
+        return Vec::new();
+    };
+    let Some(close) = spec[open..].find(']') else {
+        return Vec::new();
+    };
+    spec[open + 1..open + close]
+        .split(',')
+        .map(str::trim)
+        .filter(|e| !e.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Import paths of one extra, with self-referencing extras expanded
+/// transitively. `seen` breaks reference cycles.
+fn expand_extra(
+    name: &str,
+    raw_extras: &[(String, Vec<DepSpec>)],
+    seen: &mut Vec<String>,
+) -> Vec<String> {
+    if seen.iter().any(|s| s == name) {
+        return Vec::new();
+    }
+    seen.push(name.to_string());
+    let mut paths = Vec::new();
+    if let Some((_, specs)) = raw_extras.iter().find(|(extra, _)| extra == name) {
+        for spec in specs {
+            match spec {
+                DepSpec::Paths(p) => paths.extend(p.iter().cloned()),
+                DepSpec::SelfExtras(extras) => {
+                    for extra in extras {
+                        paths.extend(expand_extra(extra, raw_extras, seen));
+                    }
+                }
+            }
+        }
+    }
+    seen.pop();
+    paths
+}
+
 /// Import paths for dists that don't follow the normalized-name guess.
 /// Deliberately short — repo-specific cases belong in `import-names`.
 fn builtin_import_names(dist: &str) -> Option<Vec<String>> {
@@ -1136,43 +1190,74 @@ impl Config {
             return;
         };
 
-        let to_import_paths = |spec: &str| -> Vec<String> {
+        let project_name = project
+            .get("name")
+            .and_then(|n| n.as_str())
+            .map(normalize_dist);
+        let to_spec = |spec: &str| -> DepSpec {
             let dist = normalize_dist(requirement_name(spec));
+            // `pkg[extra]` where pkg is this project pulls another
+            // extra's dependencies (a common way to build union extras).
+            if Some(&dist) == project_name.as_ref() {
+                return DepSpec::SelfExtras(requirement_extras(spec));
+            }
             if let Some((_, paths)) = self
                 .imports_required_extras
                 .import_names
                 .iter()
                 .find(|(name, _)| *name == dist)
             {
-                return paths.clone();
+                return DepSpec::Paths(paths.clone());
             }
-            builtin_import_names(&dist).unwrap_or_else(|| vec![dist.replace('-', "_")])
+            DepSpec::Paths(
+                builtin_import_names(&dist).unwrap_or_else(|| vec![dist.replace('-', "_")]),
+            )
         };
-        let dep_list = |value: &toml::Value| -> Vec<String> {
+        let spec_list = |value: &toml::Value| -> Vec<DepSpec> {
             value
                 .as_array()
                 .map(|specs| {
                     specs
                         .iter()
                         .filter_map(|s| s.as_str())
-                        .flat_map(to_import_paths)
+                        .map(to_spec)
                         .collect()
                 })
                 .unwrap_or_default()
         };
 
-        if let Some(deps) = project.get("dependencies") {
-            self.project_deps.base = dep_list(deps);
-        }
-        if let Some(extras) = project
+        let raw_extras: Vec<(String, Vec<DepSpec>)> = project
             .get("optional-dependencies")
             .and_then(|e| e.as_table())
-        {
-            self.project_deps.extras = extras
-                .iter()
-                .map(|(name, specs)| (name.clone(), dep_list(specs)))
+            .map(|extras| {
+                extras
+                    .iter()
+                    .map(|(name, specs)| (name.clone(), spec_list(specs)))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        if let Some(deps) = project.get("dependencies") {
+            self.project_deps.base = spec_list(deps)
+                .into_iter()
+                .flat_map(|spec| match spec {
+                    DepSpec::Paths(paths) => paths,
+                    DepSpec::SelfExtras(extras) => extras
+                        .iter()
+                        .flat_map(|e| expand_extra(e, &raw_extras, &mut Vec::new()))
+                        .collect(),
+                })
                 .collect();
         }
+        self.project_deps.extras = raw_extras
+            .iter()
+            .map(|(name, _)| {
+                (
+                    name.clone(),
+                    expand_extra(name, &raw_extras, &mut Vec::new()),
+                )
+            })
+            .collect();
 
         // Package roots: hatch wheel packages, the normalized project
         // name, plus roots of absolute keys in the rule's requires map.
@@ -1458,6 +1543,31 @@ import-names = { "My_Dist" = ["my_dist", "my_dist_ext"] }
         let (extra, paths) = &deps.extras[0];
         assert_eq!(extra, "datascience");
         assert_eq!(paths, &vec!["pandas".to_string(), "sklearn".to_string()]);
+
+        // Self-referencing extras expand into the referenced extra's
+        // paths, in base deps and extras alike.
+        let text = r#"
+[project]
+name = "shared-lib"
+dependencies = ["boto3 >= 1.34"]
+
+[project.optional-dependencies]
+pgsql = ["psycopg[binary] >= 3.1", "sqlalchemy >= 2"]
+storage = ["shared-lib[pgsql]", "redis >= 5.2"]
+looped = ["shared-lib[looped]", "deepl >= 1"]
+"#;
+        let c = Config::from_toml(text, Path::new("pyproject.toml")).unwrap();
+        let extras: HashMap<_, _> = c.project_deps.extras.iter().cloned().collect();
+        assert_eq!(
+            extras["storage"],
+            vec![
+                "psycopg".to_string(),
+                "sqlalchemy".to_string(),
+                "redis".to_string()
+            ]
+        );
+        // A self-cycle contributes its own concrete deps once.
+        assert_eq!(extras["looped"], vec!["deepl".to_string()]);
 
         // Unconfigured: off, no deps absorbed without [project].
         let c = Config::from_toml("", Path::new("pyproject.toml")).unwrap();
