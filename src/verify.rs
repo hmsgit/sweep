@@ -159,7 +159,7 @@ pub fn verify_command(path: &Path, only: &[String], skip: &[String]) -> Result<E
                 Some(ImportOutcome::Fail { exc_type, message }) => {
                     if satisfied {
                         format!(
-                            "expected to import here (this venv provides its required {}) \
+                            "expected to import here (this venv provides {}) \
                              yet failed: {exc_type}: {message}",
                             describe_requires(&requires),
                         )
