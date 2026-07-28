@@ -130,9 +130,10 @@ pub fn verify_command(path: &Path, only: &[String], skip: &[String]) -> Result<E
             }
         };
         // One root cause (a missing dependency deep in a shared import
-        // chain) fails whole subpackage trees; grouping by verdict and
-        // exception keeps the report one line per cause.
-        let mut grouped: BTreeMap<String, Vec<&str>> = BTreeMap::new();
+        // chain) fails whole subpackage trees; grouping by the module's
+        // scope (its rules key, name-match, or first-level package) plus
+        // the verdict keeps the report one line per cause per scope.
+        let mut grouped: BTreeMap<(String, String), Vec<&str>> = BTreeMap::new();
         for module in &modules {
             let (requires, source) =
                 required_extras_with_source(module, &config.imports_required_extras, deps);
@@ -172,15 +173,18 @@ pub fn verify_command(path: &Path, only: &[String], skip: &[String]) -> Result<E
                 }
                 None => "produced no result — import crashed the interpreter".to_string(),
             };
-            grouped.entry(verdict).or_default().push(module);
+            grouped
+                .entry((scope_of(module, &source), verdict))
+                .or_default()
+                .push(module);
         }
-        for (verdict, affected) in grouped {
+        for ((scope, verdict), affected) in grouped {
             errors += affected.len();
             print_finding(
                 styled,
                 "error",
                 env_name,
-                &describe_group(&verdict, &affected),
+                &describe_group(&scope, &verdict, &affected),
             );
         }
     }
@@ -458,15 +462,30 @@ fn run_environment(
 }
 
 /// A grouped finding: the verdict, prefixed with the affected module
-/// (single) or a count plus samples (many share one root cause).
-fn describe_group(verdict: &str, affected: &[&str]) -> String {
+/// (single) or the scope with a count plus samples (a whole scope
+/// sharing one root cause).
+fn describe_group(scope: &str, verdict: &str, affected: &[&str]) -> String {
     match affected {
         [module] => format!("{module} {verdict}"),
         _ => format!(
-            "{} {verdict} — e.g. {}",
+            "{scope}: {} {verdict} — e.g. {}",
             count(affected.len(), "module"),
             sample(affected),
         ),
+    }
+}
+
+/// The reporting scope of a module: its explicit rules key, its
+/// name-match prefix, or — for everything unmapped — its first-level
+/// package (`pkg.sub` for `pkg.sub.a.b`, the module itself at the root).
+fn scope_of(module: &str, source: &RequireSource) -> String {
+    match source {
+        RequireSource::Explicit(key) => format!("requires entry \"{key}\""),
+        RequireSource::NameMatch { prefix, .. } => prefix.clone(),
+        RequireSource::Base => match module.splitn(3, '.').collect::<Vec<_>>()[..] {
+            [root, first, _] | [root, first] => format!("{root}.{first}"),
+            _ => module.to_string(),
+        },
     }
 }
 
