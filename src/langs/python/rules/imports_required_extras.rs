@@ -117,7 +117,7 @@ fn module_path(path: &Path, config: &Config, deps: &ProjectDeps) -> Option<Modul
 /// requires: the longest explicit `requires` prefix wins; unmapped
 /// modules fall back to the name-match convention on their first-level
 /// subpackage; everything else is base.
-fn required_extras(
+pub(crate) fn required_extras(
     dotted: &str,
     config: &ImportsRequiredExtrasConfig,
     deps: &ProjectDeps,
@@ -364,6 +364,7 @@ mod tests {
                 import_names: vec![("google-genai".to_string(), vec!["google.genai".to_string()])],
             },
             project_deps: ProjectDeps {
+                dist_name: Some("cobrainer".to_string()),
                 base: vec!["boto3".to_string(), "pydantic".to_string()],
                 extras: vec![
                     ("fastapi".to_string(), vec!["fastapi".to_string()]),

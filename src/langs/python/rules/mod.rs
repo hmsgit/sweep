@@ -10,7 +10,7 @@ mod docstring_start;
 mod docstring_style;
 mod docstring_sync;
 mod imports_ban_local;
-mod imports_required_extras;
+pub(crate) mod imports_required_extras;
 mod no_emdash;
 mod string_annotations;
 

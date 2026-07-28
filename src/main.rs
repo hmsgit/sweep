@@ -1,6 +1,7 @@
 mod engine;
 mod langs;
 mod output;
+mod verify;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -57,6 +58,21 @@ enum Command {
     },
     /// List available rules.
     Rules,
+    /// Install the project into isolated environments (base install
+    /// plus one per extra, via uv) and import every shipped module,
+    /// judged against the imports-required-extras mapping.
+    Verify {
+        /// Project directory (or any path inside it); the nearest
+        /// pyproject.toml with a [project] table governs.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Verify only these extras (default: all declared).
+        #[arg(long, value_delimiter = ',')]
+        extra: Vec<String>,
+        /// Extras to skip (e.g. ones with expensive dependencies).
+        #[arg(long, value_delimiter = ',')]
+        skip: Vec<String>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -77,6 +93,7 @@ fn run() -> Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
+        Command::Verify { path, extra, skip } => verify::verify_command(&path, &extra, &skip),
         Command::Check {
             paths,
             fix,

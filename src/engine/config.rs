@@ -183,6 +183,9 @@ impl Default for ImportsRequiredExtrasConfig {
 /// small built-in table, then the normalized-name guess.
 #[derive(Debug, Clone, Default)]
 pub struct ProjectDeps {
+    /// `[project].name` verbatim — the requirement name for installing
+    /// this project (`name[extra] @ file://…`).
+    pub dist_name: Option<String>,
     pub base: Vec<String>,
     pub extras: Vec<(String, Vec<String>)>,
     pub package_roots: Vec<String>,
@@ -935,7 +938,7 @@ impl ConfigResolver {
 }
 
 impl Config {
-    fn from_toml(text: &str, path: &Path) -> Result<Self> {
+    pub(crate) fn from_toml(text: &str, path: &Path) -> Result<Self> {
         let doc = toml::Value::Table(
             text.parse::<toml::Table>()
                 .with_context(|| format!("parsing {}", path.display()))?,
@@ -1205,6 +1208,11 @@ impl Config {
         for root in require_roots {
             add_root(&root);
         }
+
+        self.project_deps.dist_name = project
+            .get("name")
+            .and_then(|n| n.as_str())
+            .map(str::to_string);
     }
 
     /// Pull first-party package names from [project], [tool.poetry],
