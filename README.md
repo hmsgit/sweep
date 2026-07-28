@@ -209,8 +209,10 @@ mapping:
 - an unsatisfied module may fail, but **only with
   `ModuleNotFoundError`** — anything else at import time means
   something broke beyond a missing optional dependency;
-- an unsatisfied module that imports fine anyway gets one info note —
-  the mapping may be broader than the code needs.
+- an unsatisfied module that imports fine anyway gets one info note
+  naming the environments it succeeded in — nothing is broken, but
+  either the `requires` entry claims more than the code needs, or a
+  dependency is only arriving transitively today.
 
 This catches what static analysis can't: import-time side effects,
 installed-but-broken dependencies, and metadata that disagrees with

@@ -111,9 +111,9 @@ pub fn verify_command(path: &Path, only: &[String], skip: &[String]) -> Result<E
     let styled = std::io::stdout().is_terminal();
     let mut errors = 0usize;
     // Modules that imported fine somewhere their requirements weren't
-    // met — the mapping may be broader than the code needs. One note
-    // per module, not per environment.
-    let mut overmapped: BTreeSet<&str> = BTreeSet::new();
+    // met, and the environments it happened in — the mapping overstates
+    // what the code needs. One note per module, not per environment.
+    let mut overmapped: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
 
     for (env_name, outcome) in &results {
         let available = available_paths(deps, env_name);
@@ -140,7 +140,7 @@ pub fn verify_command(path: &Path, only: &[String], skip: &[String]) -> Result<E
             let verdict = match imports.get(module) {
                 Some(ImportOutcome::Ok) => {
                     if !satisfied {
-                        overmapped.insert(module);
+                        overmapped.entry(module).or_default().push(env_name);
                     }
                     continue;
                 }
@@ -172,16 +172,24 @@ pub fn verify_command(path: &Path, only: &[String], skip: &[String]) -> Result<E
     }
 
     let mut notes = 0usize;
-    for module in overmapped {
+    for (module, envs) in overmapped {
         let requires = required_extras(module, &config.imports_required_extras, deps);
         print_finding(
             styled,
             "info",
             "mapping",
             &format!(
-                "{module} imports without its required {} — the requires \
-                 mapping may be broader than the code needs",
+                "{module} is mapped to require {}, yet it imported fine in {} \
+                 without them ({}). Nothing is broken — but either the requires \
+                 entry claims more than the code needs, or a dependency is only \
+                 arriving transitively today.",
                 describe_requires(&requires),
+                if envs.len() == 1 {
+                    "an environment".to_string()
+                } else {
+                    format!("{} environments", envs.len())
+                },
+                sample(&envs),
             ),
         );
         notes += 1;
@@ -394,17 +402,20 @@ fn describe_group(verdict: &str, affected: &[&str]) -> String {
     match affected {
         [module] => format!("{module} {verdict}"),
         _ => format!(
-            "{} module(s) {verdict} — e.g. {}{}",
+            "{} module(s) {verdict} — e.g. {}",
             affected.len(),
-            affected
-                .iter()
-                .take(3)
-                .copied()
-                .collect::<Vec<_>>()
-                .join(", "),
-            if affected.len() > 3 { ", …" } else { "" },
+            sample(affected),
         ),
     }
+}
+
+/// Up to three names, with an ellipsis when more exist.
+fn sample(names: &[&str]) -> String {
+    let mut out = names.iter().take(3).copied().collect::<Vec<_>>().join(", ");
+    if names.len() > 3 {
+        out.push_str(", …");
+    }
+    out
 }
 
 fn describe_requires(requires: &[String]) -> String {
