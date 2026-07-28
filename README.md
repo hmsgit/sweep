@@ -199,18 +199,18 @@ intent, which is the author's call.
 
 **`sweep verify`** is this rule's runtime counterpart for CI. Where the
 rule reasons about imports statically on every commit, `verify`
-actually builds one isolated environment per extras set (the base
+actually builds one isolated venv per extras set (the base
 install plus each declared extra, via `uv run --isolated`), imports
 every shipped module in each, and judges the outcome against the same
 mapping:
 
-- a module whose required extras are satisfied by the environment
+- a module whose required extras are satisfied by the venv
   **must import cleanly** — any failure is an error;
 - an unsatisfied module may fail, but **only with
   `ModuleNotFoundError`** — anything else at import time means
   something broke beyond a missing optional dependency;
 - an unsatisfied module that imports fine anyway gets one info note
-  naming the environments it succeeded in — nothing is broken, but
+  naming the venvs it succeeded in — nothing is broken, but
   either the `requires` entry claims more than the code needs, or a
   dependency is only arriving transitively today.
 
@@ -218,7 +218,7 @@ This catches what static analysis can't: import-time side effects,
 installed-but-broken dependencies, and metadata that disagrees with
 reality. It needs `uv` on PATH and network on cold caches, so it
 belongs in CI, not pre-commit. Extras whose dependency list is empty
-resolve to the base environment and are skipped; `--skip` drops
+resolve to the base venv and are skipped; `--skip` drops
 expensive ones (`--skip embeddings` when torch is involved), `--extra`
 limits the run to named ones. Exit is non-zero on errors; notes never
 fail.

@@ -1,6 +1,6 @@
 //! `sweep verify` — the runtime counterpart of imports-required-extras.
 //!
-//! Builds one throwaway environment per extras set (base install plus
+//! Builds one throwaway venv per extras set (base install plus
 //! each declared extra, via `uv run --isolated`), imports every shipped
 //! module in each, and judges the outcome against the same mapping the
 //! static rule enforces: a module whose required extras are satisfied
@@ -45,7 +45,7 @@ for current in sys.argv[1:]:
 signal.alarm(0)
 ";
 
-/// Ceiling on interpreter restarts per environment after hangs or
+/// Ceiling on interpreter restarts per venv after hangs or
 /// crashes — each restart makes progress, so this only stops a
 /// pathological project from running forever.
 const MAX_RESTARTS: usize = 25;
@@ -85,8 +85,8 @@ pub fn verify_command(path: &Path, only: &[String], skip: &[String]) -> Result<E
         );
     }
 
-    // base plus one environment per extra; extras adding no dependencies
-    // resolve to the base environment and are skipped as duplicates.
+    // base plus one venv per extra; extras adding no dependencies
+    // resolve to the base venv and are skipped as duplicates.
     let environments: Vec<Option<String>> = std::iter::once(None)
         .chain(
             deps.extras
@@ -112,7 +112,7 @@ pub fn verify_command(path: &Path, only: &[String], skip: &[String]) -> Result<E
     let styled = std::io::stdout().is_terminal();
     let mut errors = 0usize;
     // Modules that imported fine somewhere their requirements weren't
-    // met, and the environments it happened in — the mapping overstates
+    // met, and the venvs it happened in — the mapping overstates
     // what the code needs. One note per module, not per environment.
     let mut overmapped: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
 
@@ -148,7 +148,7 @@ pub fn verify_command(path: &Path, only: &[String], skip: &[String]) -> Result<E
                 Some(ImportOutcome::Fail { exc_type, message }) => {
                     if satisfied {
                         format!(
-                            "expected to import here (this environment provides its required {}) \
+                            "expected to import here (this venv provides its required {}) \
                              yet failed: {exc_type}: {message}",
                             describe_requires(&requires),
                         )
@@ -189,9 +189,9 @@ pub fn verify_command(path: &Path, only: &[String], skip: &[String]) -> Result<E
                  arriving transitively today.",
                 describe_requires(&requires),
                 if envs.len() == 1 {
-                    "an environment".to_string()
+                    "a venv".to_string()
                 } else {
-                    format!("{} environments", envs.len())
+                    format!("{} venvs", envs.len())
                 },
                 if requires.len() == 1 { "it" } else { "them" },
                 sample(&envs),
@@ -202,7 +202,7 @@ pub fn verify_command(path: &Path, only: &[String], skip: &[String]) -> Result<E
 
     println!(
         "sweep verify: {} × {}: {}, {}",
-        count(results.len(), "environment"),
+        count(results.len(), "venv"),
         count(modules.len(), "module"),
         count(errors, "error"),
         count(notes, "note"),
@@ -291,7 +291,7 @@ fn collect_modules(project_dir: &Path, config: &Config) -> Result<Vec<String>> {
     Ok(modules.into_iter().collect())
 }
 
-/// Import paths available in an environment: base dependencies plus
+/// Import paths available in a venv: base dependencies plus
 /// the environment's extra.
 fn available_paths<'d>(deps: &'d ProjectDeps, env_name: &str) -> BTreeSet<&'d str> {
     let mut available: BTreeSet<&str> = deps.base.iter().map(String::as_str).collect();
@@ -301,7 +301,7 @@ fn available_paths<'d>(deps: &'d ProjectDeps, env_name: &str) -> BTreeSet<&'d st
     available
 }
 
-/// Install the project into an isolated environment via uv and import
+/// Install the project into an isolated venv via uv and import
 /// every module there. A hanging or crashing import kills only that
 /// interpreter: the offender is recorded and a fresh one continues
 /// with the remaining modules.
@@ -361,12 +361,12 @@ fn run_environment(
             results.insert(outcome.0.to_string(), outcome.1);
         }
 
-        // First round producing nothing: the environment never came up
+        // First round producing nothing: the venv never came up
         // (resolution failure, missing interpreter) — surface uv's stderr.
         if results.is_empty() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             anyhow::bail!(
-                "environment failed to build: {}",
+                "venv failed to build: {}",
                 stderr.lines().last().unwrap_or("(no uv output)")
             );
         }

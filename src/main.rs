@@ -58,7 +58,7 @@ enum Command {
     },
     /// List available rules.
     Rules,
-    /// Install the project into isolated environments (base install
+    /// Install the project into isolated venvs (base install
     /// plus one per extra, via uv) and import every shipped module,
     /// judged against the imports-required-extras mapping.
     Verify {
