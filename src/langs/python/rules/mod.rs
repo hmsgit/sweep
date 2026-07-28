@@ -10,6 +10,7 @@ mod docstring_start;
 mod docstring_style;
 mod docstring_sync;
 mod imports_ban_local;
+mod imports_required_extras;
 mod no_emdash;
 mod string_annotations;
 
@@ -18,6 +19,7 @@ use crate::engine::rule::Rule;
 pub fn all_rules() -> Vec<Box<dyn Rule>> {
     vec![
         Box::new(imports_ban_local::ImportsBanLocal),
+        Box::new(imports_required_extras::ImportsRequiredExtras),
         Box::new(string_annotations::StringAnnotations),
         Box::new(docstring_style::DocstringStyle),
         Box::new(docstring_start::DocstringStart),

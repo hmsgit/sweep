@@ -77,6 +77,7 @@ See [Extending](#extending) for how to add a rule or a language.
 | rule | detects | `--fix` |
 | --- | --- | --- |
 | [`imports-ban-local`](#imports-ban-local) | `import` / `from … import` inside functions | hoists to the module import block, section-sorted |
+| [`imports-required-extras`](#imports-required-extras) | module-level imports a partial install can't satisfy (a base module importing a dependency that only ships in an extra) — opt-in | reports only; deferring or remapping is a design decision |
 | [`docstring-style`](#docstring-style) | docstrings following a different convention than configured; wrong inline markup | converts to the configured convention; fixes markup |
 | [`string-annotations`](#string-annotations) | quoted type annotations like `x: "Foo"` | unquotes; inserts `from __future__ import annotations` |
 | [`docstring-start`](#docstring-start) | multi-line docstrings whose content starts on the wrong side of the opening quotes (`next-line` default, `same-line` optional) | moves the content to the configured side |
@@ -144,6 +145,57 @@ Warned about but **never auto-hoisted** (the fix would change behavior):
 
 Blank lines between import sections are not managed; run ruff/isort
 formatting after `--fix` if you care about exact spacing.
+
+### imports-required-extras
+
+For libraries with optional extras: a module importable with the base
+install (or a declared set of extras) must not import, at module level,
+a dependency that only ships in extras it doesn't require. One hoisted
+lazy import in a core module can break every consumer that installed
+the package without that extra — at import time, far from the change.
+
+The rule checks each file's own eager imports, first-party ones
+included: a base module importing `pkg.mcp` is flagged just like one
+importing `fastmcp` directly. Since every file only imports what its
+own extras guarantee, the whole import closure is safe by induction —
+no import graph needed. Eager means unconditional module level: imports
+under `if TYPE_CHECKING:`, `try:` or any other guard don't count, and
+function-level imports are the sanctioned escape hatch
+(`# sweep: deferred-import`, see
+[imports-ban-local](#imports-ban-local)).
+
+Dependencies and extras come from `[project]`; which extras a
+subpackage may assume is declared in the rule's `requires` map,
+enabling the rule:
+
+```toml
+[tool.sweep.rules.imports-required-extras]
+requires = { ".api" = ["fastapi"], ".io.airtable" = ["airtable", "datascience"] }
+```
+
+- Keys are module prefixes; a leading dot is relative to any shipped
+  package root (`".api"` covers `pkg.api` and everything below it), the
+  longest matching prefix wins. Values list the extras that subpackage
+  requires — all of them, so a module mapped to two extras may only be
+  imported where both are guaranteed.
+- Unmapped subpackages fall back to the **name-match convention**: an
+  extra named like a first-level subpackage is implicitly required by
+  it (extra `polyglot` ↔ `pkg.polyglot`; separators are ignored, so
+  extra `loadtest` matches `pkg.load_test`). Disable with
+  `match-by-name = false`. Everything still unmatched is base: it must
+  import with a bare install.
+- Distribution names become import paths by normalization (`-` → `_`),
+  a small built-in table (`scikit-learn` → `sklearn`,
+  `google-genai` → `google.genai`, …) and the `import-names` override
+  map (`import-names = { my-dist = ["my_pkg", "my_pkg_ext"] }`).
+- Imports matching no declared dependency (transitive deps, stub
+  packages) and files outside the shipped packages (tests, scripts) are
+  ignored. Package roots come from `[tool.hatch.build.targets.wheel].packages`,
+  the normalized project name, and absolute `requires` keys.
+
+There is no autofix: the two legitimate resolutions — deferring the
+import into the using function or extending the mapping — change design
+intent, which is the author's call.
 
 ### docstring-style
 
@@ -611,6 +663,7 @@ known-first-party = ["mypkg"]
 | `exclude` (top level) | list of path substrings | — | `[]` |
 | `line-length` (top level) | number | — | ruff's `line-length`, else 88 (ruff/black's default) |
 | `imports-ban-local` | level | `level`, `known-first-party` | `error` |
+| `imports-required-extras` | level | `level`, `match-by-name`, `requires`, `import-names` | `off`; a configured table without `level` enables at `error` |
 | `docstring-style` | level or `rest`\|`google`\|`numpy` | `level`, `style` | `error`, `rest` |
 | `docstring-start` | level or `next-line`\|`same-line` | `level`, `start` | `error`, `next-line` |
 | `string-annotations` | level | `level` | `error` |
@@ -631,7 +684,10 @@ need no `[tool.sweep]` section at all:
 
 - **first-party packages**: `[project].name`, `[tool.poetry].name`,
   `[tool.ruff.lint.isort].known-first-party`, `[tool.isort].known_first_party`;
-- **line length**: `[tool.ruff].line-length`.
+- **line length**: `[tool.ruff].line-length`;
+- **dependencies and extras** (for imports-required-extras):
+  `[project].dependencies`, `[project.optional-dependencies]`,
+  `[tool.hatch.build.targets.wheel].packages`.
 
 ### Version mismatches don't abort the run
 

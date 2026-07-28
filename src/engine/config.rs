@@ -150,6 +150,105 @@ impl Default for CasingConfig {
     }
 }
 
+/// Config for the imports-required-extras rule: which optional extras
+/// each subpackage may assume installed. Keys are module prefixes —
+/// `".api"` is relative to any package root, `"pkg.api"` is absolute.
+/// An explicit entry overrides the name-match convention (an extra
+/// named like a first-level subpackage is implicitly required by it).
+#[derive(Debug, Clone)]
+pub struct ImportsRequiredExtrasConfig {
+    pub level: Level,
+    pub match_by_name: bool,
+    pub requires: Vec<(String, Vec<String>)>,
+    /// Distribution-name (PEP 503 normalized) → import path(s), for
+    /// dists whose import name differs from the normalized guess.
+    pub import_names: Vec<(String, Vec<String>)>,
+}
+
+impl Default for ImportsRequiredExtrasConfig {
+    fn default() -> Self {
+        Self {
+            level: Level::Off,
+            match_by_name: true,
+            requires: Vec::new(),
+            import_names: Vec::new(),
+        }
+    }
+}
+
+/// Dependency data pulled from `[project]` when the config file is a
+/// pyproject: what a bare install provides, what each extra adds, and
+/// which top-level packages this distribution ships. Import paths are
+/// resolved from distribution names via `import-names` overrides, a
+/// small built-in table, then the normalized-name guess.
+#[derive(Debug, Clone, Default)]
+pub struct ProjectDeps {
+    pub base: Vec<String>,
+    pub extras: Vec<(String, Vec<String>)>,
+    pub package_roots: Vec<String>,
+}
+
+/// PEP 503 name normalization: lowercase, runs of `-_.` become `-`.
+pub fn normalize_dist(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    let mut last_sep = false;
+    for c in name.chars() {
+        if matches!(c, '-' | '_' | '.') {
+            if !last_sep {
+                out.push('-');
+            }
+            last_sep = true;
+        } else {
+            out.push(c.to_ascii_lowercase());
+            last_sep = false;
+        }
+    }
+    out
+}
+
+/// Comparison form for the name-match convention: lowercase with all
+/// separators dropped, so extra `loadtest` matches module `load_test`.
+pub fn normalize_flat(name: &str) -> String {
+    name.chars()
+        .filter(|c| !matches!(c, '-' | '_' | '.'))
+        .flat_map(|c| c.to_lowercase())
+        .collect()
+}
+
+/// The distribution name of a PEP 508 requirement string: everything
+/// before extras, version specifiers, markers or URLs.
+fn requirement_name(spec: &str) -> &str {
+    let end = spec
+        .find(|c: char| {
+            c.is_whitespace() || matches!(c, '[' | '<' | '>' | '=' | '!' | '~' | ';' | '@' | '(')
+        })
+        .unwrap_or(spec.len());
+    &spec[..end]
+}
+
+/// Import paths for dists that don't follow the normalized-name guess.
+/// Deliberately short — repo-specific cases belong in `import-names`.
+fn builtin_import_names(dist: &str) -> Option<Vec<String>> {
+    let paths: &[&str] = match dist {
+        "scikit-learn" => &["sklearn"],
+        "pyyaml" => &["yaml"],
+        "pillow" => &["PIL"],
+        "beautifulsoup4" => &["bs4"],
+        "python-dateutil" => &["dateutil"],
+        "opencv-python" => &["cv2"],
+        "pyjwt" => &["jwt"],
+        "google-genai" => &["google.genai"],
+        "protobuf" => &["google.protobuf"],
+        _ => {
+            if let Some(rest) = dist.strip_prefix("google-cloud-") {
+                return Some(vec![format!("google.cloud.{}", rest.replace('-', "_"))]);
+            }
+            return None;
+        }
+    };
+    Some(paths.iter().map(|p| p.to_string()).collect())
+}
+
 /// Matches ruff/black's default, so an unconfigured repo gets the
 /// same limit from sweep and ruff.
 pub const DEFAULT_LINE_LENGTH: usize = 88;
@@ -177,6 +276,13 @@ pub struct Config {
     pub docstring_sync_level: Level,
     pub docstring_no_echo_level: Level,
     pub docstring_no_type_echo_level: Level,
+    pub imports_required_extras: ImportsRequiredExtrasConfig,
+    /// Dependency/extras data from `[project]`; empty unless the config
+    /// came from a pyproject with a `[project]` table.
+    pub project_deps: ProjectDeps,
+    /// Directory of the config file, for resolving checked files to
+    /// dotted module paths. None for the built-in fallback config.
+    pub config_dir: Option<PathBuf>,
     /// Rule entries this sweep couldn't read. They don't abort parsing
     /// (the other rules still run) but each is reported once per config
     /// file as `error[config]` and fails the run — a silently disabled
@@ -209,6 +315,9 @@ impl Default for Config {
             docstring_sync_level: Level::Off,
             docstring_no_echo_level: Level::Off,
             docstring_no_type_echo_level: Level::Off,
+            imports_required_extras: ImportsRequiredExtrasConfig::default(),
+            project_deps: ProjectDeps::default(),
+            config_dir: None,
             errors: Vec::new(),
         }
     }
@@ -245,6 +354,93 @@ struct RawRules {
     docstring_sync: RawRuleEntry,
     docstring_no_echo: RawRuleEntry,
     docstring_no_type_echo: RawRuleEntry,
+    imports_required_extras: RawImportsRequiredExtras,
+}
+
+/// imports-required-extras accepts a bare level or the table form with
+/// `level`, `match-by-name`, `requires` and `import-names`. A table
+/// without `level` enables the rule at error — the rule exists to fail
+/// commits that break partial installs.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawImportsRequiredExtras {
+    Level(Level),
+    Table(RawImportsRequiredExtrasTable),
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default, rename_all = "kebab-case")]
+struct RawImportsRequiredExtrasTable {
+    level: Option<Level>,
+    match_by_name: Option<bool>,
+    requires: toml::Table,
+    import_names: HashMap<String, RawImportName>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawImportName {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl RawImportName {
+    fn into_paths(self) -> Vec<String> {
+        match self {
+            RawImportName::One(path) => vec![path],
+            RawImportName::Many(paths) => paths,
+        }
+    }
+}
+
+impl RawImportsRequiredExtras {
+    fn resolve(self, path: &Path) -> Result<ImportsRequiredExtrasConfig> {
+        let defaults = ImportsRequiredExtrasConfig::default();
+        match self {
+            RawImportsRequiredExtras::Level(level) => {
+                Ok(ImportsRequiredExtrasConfig { level, ..defaults })
+            }
+            RawImportsRequiredExtras::Table(t) => {
+                let configured = !t.requires.is_empty()
+                    || !t.import_names.is_empty()
+                    || t.match_by_name.is_some();
+                let mut requires = Vec::new();
+                for (key, value) in t.requires {
+                    let extras: Vec<String> = value.try_into().map_err(|e: toml::de::Error| {
+                        anyhow::anyhow!(
+                            "invalid requires entry {key:?} in {} ({})",
+                            path.display(),
+                            e.message()
+                        )
+                    })?;
+                    requires.push((key, extras));
+                }
+                // Longest prefix first, so resolution can take the
+                // first match.
+                requires.sort_by(|a, b| b.0.len().cmp(&a.0.len()).then(a.0.cmp(&b.0)));
+                Ok(ImportsRequiredExtrasConfig {
+                    level: t.level.unwrap_or(if configured {
+                        Level::Error
+                    } else {
+                        defaults.level
+                    }),
+                    match_by_name: t.match_by_name.unwrap_or(defaults.match_by_name),
+                    requires,
+                    import_names: t
+                        .import_names
+                        .into_iter()
+                        .map(|(dist, paths)| (normalize_dist(&dist), paths.into_paths()))
+                        .collect(),
+                })
+            }
+        }
+    }
+}
+
+impl Default for RawImportsRequiredExtras {
+    fn default() -> Self {
+        RawImportsRequiredExtras::Table(RawImportsRequiredExtrasTable::default())
+    }
 }
 
 /// docstring-style accepts `docstring-style = "rest"` / `"google"` /
@@ -599,6 +795,9 @@ fn check_rule_value(key: &str, value: &toml::Value, path: &Path) -> Option<Resul
             parse::<RawCasing>(value).and_then(|r| r.resolve(path).map(|_| ()))
         }
         "allowed-emojis" => parse::<String>(value).map(|_| ()),
+        "imports-required-extras" => {
+            parse::<RawImportsRequiredExtras>(value).and_then(|r| r.resolve(path).map(|_| ()))
+        }
         "string-annotations"
         | "docstring-line-length"
         | "annotate-module-const"
@@ -880,6 +1079,12 @@ impl Config {
                 .docstring_no_type_echo
                 .level()
                 .unwrap_or(defaults.docstring_no_type_echo_level),
+            imports_required_extras: raw.rules.imports_required_extras.resolve(path)?,
+            project_deps: ProjectDeps::default(),
+            config_dir: path
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .map(|p| p.canonicalize().unwrap_or_else(|_| p.to_path_buf())),
             errors: Vec::new(),
         };
 
@@ -890,6 +1095,7 @@ impl Config {
 
         if is_pyproject {
             config.absorb_first_party_hints(&doc);
+            config.absorb_project_deps(&doc);
         }
         Ok(config)
     }
@@ -913,7 +1119,91 @@ impl Config {
             "docstring-sync" => self.docstring_sync_level = Level::Off,
             "docstring-no-echo" => self.docstring_no_echo_level = Level::Off,
             "docstring-no-type-echo" => self.docstring_no_type_echo_level = Level::Off,
+            "imports-required-extras" => self.imports_required_extras.level = Level::Off,
             _ => {}
+        }
+    }
+
+    /// Pull `[project]` dependencies, optional-dependencies and shipped
+    /// package roots for the imports-required-extras rule. Distribution
+    /// names become import paths via the rule's `import-names` overrides,
+    /// the built-in table, then the normalized guess (`-` → `_`).
+    fn absorb_project_deps(&mut self, doc: &toml::Value) {
+        let Some(project) = doc.get("project") else {
+            return;
+        };
+
+        let to_import_paths = |spec: &str| -> Vec<String> {
+            let dist = normalize_dist(requirement_name(spec));
+            if let Some((_, paths)) = self
+                .imports_required_extras
+                .import_names
+                .iter()
+                .find(|(name, _)| *name == dist)
+            {
+                return paths.clone();
+            }
+            builtin_import_names(&dist).unwrap_or_else(|| vec![dist.replace('-', "_")])
+        };
+        let dep_list = |value: &toml::Value| -> Vec<String> {
+            value
+                .as_array()
+                .map(|specs| {
+                    specs
+                        .iter()
+                        .filter_map(|s| s.as_str())
+                        .flat_map(to_import_paths)
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+
+        if let Some(deps) = project.get("dependencies") {
+            self.project_deps.base = dep_list(deps);
+        }
+        if let Some(extras) = project
+            .get("optional-dependencies")
+            .and_then(|e| e.as_table())
+        {
+            self.project_deps.extras = extras
+                .iter()
+                .map(|(name, specs)| (name.clone(), dep_list(specs)))
+                .collect();
+        }
+
+        // Package roots: hatch wheel packages, the normalized project
+        // name, plus roots of absolute keys in the rule's requires map.
+        let mut add_root = |name: &str| {
+            let root = name.rsplit('/').next().unwrap_or(name).replace('-', "_");
+            if !root.is_empty() && !self.project_deps.package_roots.contains(&root) {
+                self.project_deps.package_roots.push(root);
+            }
+        };
+        if let Some(packages) = doc
+            .get("tool")
+            .and_then(|t| t.get("hatch"))
+            .and_then(|h| h.get("build"))
+            .and_then(|b| b.get("targets"))
+            .and_then(|t| t.get("wheel"))
+            .and_then(|w| w.get("packages"))
+            .and_then(|p| p.as_array())
+        {
+            for package in packages.iter().filter_map(|p| p.as_str()) {
+                add_root(package);
+            }
+        }
+        if let Some(name) = project.get("name").and_then(|n| n.as_str()) {
+            add_root(name);
+        }
+        let require_roots: Vec<String> = self
+            .imports_required_extras
+            .requires
+            .iter()
+            .filter(|(key, _)| !key.starts_with('.'))
+            .filter_map(|(key, _)| key.split('.').next().map(str::to_string))
+            .collect();
+        for root in require_roots {
+            add_root(&root);
         }
     }
 
@@ -1118,6 +1408,61 @@ casing-module-const = { level = "error", case = "upper" }
         .unwrap();
         assert_eq!(c.allowed_emojis_level, Level::Warn);
         assert!(c.allowed_emojis.is_empty());
+    }
+
+    #[test]
+    fn imports_required_extras_parses_and_absorbs_project_deps() {
+        let text = r#"
+[project]
+name = "shared-lib"
+dependencies = ["boto3 >= 1.34", "google-genai>=2.10.0", "pydantic >= 2.10.0"]
+
+[project.optional-dependencies]
+llm = ["fastmcp>=3.3.1", "litellm >= 1.93.0"]
+datascience = ["pandas >= 2.2", "scikit-learn >= 1.2"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["cobrainer"]
+
+[tool.sweep.rules.imports-required-extras]
+requires = { ".api" = ["fastapi"], ".io.airtable" = ["airtable", "datascience"] }
+import-names = { "My_Dist" = ["my_dist", "my_dist_ext"] }
+"#;
+        let c = Config::from_toml(text, Path::new("pyproject.toml")).unwrap();
+        let rule = &c.imports_required_extras;
+        // A configured table without a level enables at error.
+        assert_eq!(rule.level, Level::Error);
+        assert!(rule.match_by_name);
+        // Longest key first for prefix resolution.
+        assert_eq!(rule.requires[0].0, ".io.airtable");
+        assert_eq!(
+            rule.import_names,
+            vec![(
+                "my-dist".to_string(),
+                vec!["my_dist".to_string(), "my_dist_ext".to_string()],
+            )]
+        );
+
+        let deps = &c.project_deps;
+        assert_eq!(deps.package_roots, vec!["cobrainer", "shared_lib"]);
+        // Built-in import-name table kicks in for google-genai.
+        assert_eq!(deps.base, vec!["boto3", "google.genai", "pydantic"]);
+        let (extra, paths) = &deps.extras[0];
+        assert_eq!(extra, "datascience");
+        assert_eq!(paths, &vec!["pandas".to_string(), "sklearn".to_string()]);
+
+        // Unconfigured: off, no deps absorbed without [project].
+        let c = Config::from_toml("", Path::new("pyproject.toml")).unwrap();
+        assert_eq!(c.imports_required_extras.level, Level::Off);
+        assert!(c.project_deps.extras.is_empty());
+
+        // Bare level shorthand.
+        let c = Config::from_toml(
+            "[tool.sweep.rules]\nimports-required-extras = \"warn\"\n",
+            Path::new("pyproject.toml"),
+        )
+        .unwrap();
+        assert_eq!(c.imports_required_extras.level, Level::Warn);
     }
 
     #[test]
