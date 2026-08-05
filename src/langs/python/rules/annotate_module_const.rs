@@ -1,17 +1,25 @@
 use tree_sitter::Node;
 
+use crate::engine::config::Case;
 use crate::engine::context::FileContext;
 use crate::engine::diagnostic::Diagnostic;
 use crate::engine::fix::{Edit, Fix};
 use crate::engine::rule::Rule;
 use crate::langs::python::{is_typing_special_assignment, top_insertion_offset};
 
-/// Module-level constants (UPPER_CASE names) should carry a `Final`
-/// annotation. The fix adds `: Final` (or wraps an existing annotation
-/// as `Final[T]`) and inserts `from typing import Final` if missing.
+/// Module-level constants should carry a `Final` annotation. The fix
+/// adds `: Final` (or wraps an existing annotation as `Final[T]`) and
+/// inserts `from typing import Final` if missing.
 /// Naming is casing-module-const's business; this pass only annotates.
 ///
-/// A name only counts as a constant when nothing contradicts it:
+/// A constant is any UPPER_CASE name; when casing-module-const is
+/// configured `lower` (so caps no longer mark constant-ness), a plain
+/// lowercase name also counts if its value is a simple literal —
+/// string without interpolation, number, bool, None, or a tuple of
+/// those. List/dict/set literals and computed values stay exempt:
+/// they are indistinguishable from deliberately mutable module state.
+///
+/// Either way a name only counts when nothing contradicts it:
 /// assigned exactly once at module level and never declared `global`
 /// anywhere in the file — otherwise Final would be a lie.
 pub struct AnnotateModuleConst;
@@ -22,7 +30,7 @@ impl Rule for AnnotateModuleConst {
     }
 
     fn explain(&self) -> &'static str {
-        "module constants (UPPER_CASE) should be annotated with typing.Final"
+        "module constants should be annotated with typing.Final"
     }
 
     fn check(&self, ctx: &FileContext) -> Vec<Diagnostic> {
@@ -30,6 +38,9 @@ impl Rule for AnnotateModuleConst {
         let Some(severity) = level.severity() else {
             return Vec::new();
         };
+
+        let casing = ctx.config.casing_module_const;
+        let lower_constants = casing.level.severity().is_some() && casing.case == Case::Lower;
 
         let root = ctx.root();
         let needs_import = !has_final_import(root, ctx.source);
@@ -58,7 +69,13 @@ impl Rule for AnnotateModuleConst {
                 continue;
             }
             let name = &ctx.source[left.byte_range()];
-            if !is_constant_name(name)
+            let named_constant = is_constant_name(name);
+            let literal_constant = lower_constants
+                && is_lower_constant_name(name)
+                && assignment
+                    .child_by_field_name("right")
+                    .is_some_and(is_simple_literal);
+            if !(named_constant || literal_constant)
                 || rebound.contains(&name.to_string())
                 || is_typing_special_assignment(assignment, ctx.source)
             {
@@ -114,6 +131,43 @@ fn is_constant_name(name: &str) -> bool {
     !name.starts_with('_')
         && name.chars().any(|c| c.is_alphabetic())
         && !name.chars().any(|c| c.is_lowercase())
+}
+
+/// lower_case with at least one letter, not underscore-prefixed —
+/// mirrors casing-module-const's notion of a public module name.
+fn is_lower_constant_name(name: &str) -> bool {
+    !name.starts_with('_')
+        && name.chars().any(|c| c.is_alphabetic())
+        && !name.chars().any(|c| c.is_uppercase())
+}
+
+/// Immutable literal value: string (no f-string interpolation),
+/// number, bool, None, or a tuple of simple literals. Lists, dicts,
+/// sets, and computed values don't qualify — those shapes routinely
+/// back deliberately mutable module state.
+fn is_simple_literal(node: Node) -> bool {
+    match node.kind() {
+        "integer" | "float" | "true" | "false" | "none" => true,
+        "string" | "concatenated_string" => !has_interpolation(node),
+        "unary_operator" => node
+            .child_by_field_name("argument")
+            .is_some_and(|arg| matches!(arg.kind(), "integer" | "float")),
+        "tuple" => {
+            let mut cursor = node.walk();
+            node.named_children(&mut cursor).all(is_simple_literal)
+        }
+        _ => false,
+    }
+}
+
+fn has_interpolation(node: Node) -> bool {
+    let mut found = false;
+    crate::engine::context::walk_tree(node, &mut |n| {
+        if n.kind() == "interpolation" {
+            found = true;
+        }
+    });
+    found
 }
 
 /// Names that are provably not constants: assigned more than once at

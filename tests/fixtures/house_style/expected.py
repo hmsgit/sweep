@@ -10,6 +10,13 @@ TIMEOUT: Final = 5
 RETRIES: int = 3  # tuned
 TOGGLE = False
 TOGGLE = True
+identity_key: Final = "identity"
+retry_delays: Final = (0.1, 0.5)
+negative_floor: Final = -1
+banner_text = f"{TIMEOUT} seconds"
+mutable_registry = []
+counter = 0
+counter = 1
 
 
 class Color(Enum):
